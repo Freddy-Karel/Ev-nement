@@ -1,0 +1,6 @@
+import{c as g,z as c}from"./index-DpJBf6sJ.js";import{r as t}from"./react-vendor-CDUN56-9.js";import{e as m}from"./events-C4LNpxDB.js";/**
+ * @license lucide-react v0.460.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const z=g("Pencil",[["path",{d:"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",key:"1a8usu"}],["path",{d:"m15 5 4 4",key:"1mk7zo"}]]);function b(o=!0){const[p,l]=t.useState([]),[f,u]=t.useState(!1),[d,i]=t.useState(null),n=t.useCallback(async()=>{var r,a;u(!0),i(null);try{const e=await m.getAll();l(e)}catch(e){const s=((a=(r=e.response)==null?void 0:r.data)==null?void 0:a.message)||"Impossible de charger les événements";i(s),c.error(s)}finally{u(!1)}},[]);t.useEffect(()=>{o&&n()},[o,n]);const v=t.useCallback(async r=>{var a,e;try{await m.delete(r),l(s=>s.filter(E=>E.id!==r)),c.success("Événement supprimé")}catch(s){c.error(((e=(a=s.response)==null?void 0:a.data)==null?void 0:e.message)||"Erreur lors de la suppression")}},[]);return{events:p,loading:f,error:d,fetchEvents:n,deleteEvent:v}}export{z as P,b as u};

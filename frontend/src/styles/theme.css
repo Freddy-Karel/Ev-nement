@@ -1,0 +1,562 @@
+/* ================================================================
+   CHARTE GRAPHIQUE – Impact Centre Chrétien
+   Double thème : day (ICC / diurne) • night (noir/or)
+   Switch via classe .theme-day ou .theme-night sur <html>
+   ================================================================ */
+
+/* ── Import polices (backup si index.html ne les charge pas) ───── */
+/* @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap'); */
+
+/* ================================================================
+   VARIABLES COMMUNES (indépendantes du thème)
+   ================================================================ */
+:root {
+  /* Polices */
+  --font-heading: 'Poppins', system-ui, sans-serif;
+  --font-sans:    'Inter', system-ui, sans-serif;
+  --font-serif:   'Playfair Display', Georgia, serif;
+
+  /* Transitions */
+  --transition:    200ms ease;
+  --transition-md: 350ms ease;
+
+  /* Border radius */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  20px;
+  --radius-full: 9999px;
+}
+
+/* ================================================================
+   THÈME DIURNE — Impact Centre Chrétien (défaut)
+   Palette : violet ICC #7B2D8B · vert #4CAF50 · blanc · gris
+   ================================================================ */
+.theme-day {
+  /* Surfaces — lavande très légère, non éclatante */
+  --color-surface:    #F7F5FF;   /* fond de page (lilas 2 %) */
+  --color-surface-2:  #FFFFFF;   /* cartes, header — blanc pur sur fond coloré */
+  --color-surface-3:  #EEE9FB;   /* surfaces tertiaires / onglets inactifs */
+  --color-surface-4:  #E4DDF7;   /* hover léger */
+
+  /* Texte */
+  --color-text-primary:   #1A1A2E;
+  --color-text-secondary: #374151;
+  --color-text-muted:     #6B7280;
+  --color-text-inverse:   #FFFFFF;
+
+  /* Couleurs ICC */
+  --color-primary:        #7B2D8B;   /* Violet ICC */
+  --color-primary-light:  #9B4DAB;
+  --color-primary-dark:   #5C1F6A;
+  --color-primary-subtle: rgba(123, 45, 139, 0.08);
+
+  --color-secondary:       #16A34A;  /* Vert succès */
+  --color-secondary-light: #22C55E;
+  --color-secondary-dark:  #15803D;
+  --color-secondary-subtle: rgba(22, 163, 74, 0.1);
+
+  /* Alias (gold = primary en mode day) */
+  --color-gold:       #7B2D8B;
+  --color-gold-light: #9B4DAB;
+  --color-gold-dark:  #5C1F6A;
+  --color-black:      #1A1A2E;
+  --color-white:      #FFFFFF;
+
+  /* Bordures */
+  --color-border:        #DDD6FE;   /* lilas clair */
+  --color-border-strong: #C4B5FD;
+
+  /* Ombres */
+  --shadow-gold:    0 0 20px rgba(123, 45, 139, 0.15);
+  --shadow-gold-lg: 0 0 40px rgba(123, 45, 139, 0.25);
+  --shadow-card:    0 2px 12px rgba(26, 26, 46, 0.07);
+  --shadow-lg:      0 8px 32px rgba(26, 26, 46, 0.10);
+
+  /* Header */
+  --header-bg:       #FFFFFF;
+  --header-border:   #DDD6FE;
+  --header-text:     #1A1A2E;
+  --header-shadow:   0 1px 8px rgba(26, 26, 46, 0.06);
+
+
+  /* Footer */
+  --footer-bg:    #1A1A2E;
+  --footer-text:  #D1D5DB;
+  --footer-muted: #9CA3AF;
+
+  /* Scrollbar */
+  --scrollbar-track: #F1F3F5;
+  --scrollbar-thumb: #7B2D8B;
+}
+
+/* ================================================================
+   THÈME NOCTURNE — Noir / Or (secondaire, inchangé)
+   ================================================================ */
+.theme-night {
+  /* Surfaces */
+  --color-surface:    #0D0D0D;
+  --color-surface-2:  #1A1A1A;
+  --color-surface-3:  #2A2A2A;
+  --color-surface-4:  #333333;
+
+  /* Texte */
+  --color-text-primary:   #F5F5F5;
+  --color-text-secondary: #B0B0B0;
+  --color-text-muted:     #6B6B6B;
+  --color-text-inverse:   #000000;
+
+  /* Couleurs or */
+  --color-primary:        #D4AF37;
+  --color-primary-light:  #E8C84A;
+  --color-primary-dark:   #B8922A;
+  --color-primary-subtle: rgba(212, 175, 55, 0.12);
+
+  --color-secondary:        #D4AF37;
+  --color-secondary-light:  #E8C84A;
+  --color-secondary-dark:   #B8922A;
+  --color-secondary-subtle: rgba(212, 175, 55, 0.08);
+
+  /* Alias or (compatibilité composants existants) */
+  --color-gold:       #D4AF37;
+  --color-gold-light: #E8C84A;
+  --color-gold-dark:  #B8922A;
+  --color-black:      #000000;
+  --color-white:      #FFFFFF;
+
+  /* Bordures */
+  --color-border:        #2E2E2E;
+  --color-border-strong: #3E3E3E;
+
+  /* Ombres */
+  --shadow-gold:    0 0 20px rgba(212, 175, 55, 0.25);
+  --shadow-gold-lg: 0 0 40px rgba(212, 175, 55, 0.35);
+  --shadow-card:    0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg:      0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* Header */
+  --header-bg:     #111111;
+  --header-border: #2E2E2E;
+  --header-text:   #F5F5F5;
+  --header-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+
+  /* Footer */
+  --footer-bg:    #090909;
+  --footer-text:  #B0B0B0;
+  --footer-muted: #6B6B6B;
+
+  /* Scrollbar */
+  --scrollbar-track: #1A1A1A;
+  --scrollbar-thumb: #B8922A;
+}
+
+/* ================================================================
+   RESET & BASE
+   ================================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color var(--transition-md), color var(--transition-md);
+}
+
+/* ── Scrollbar personnalisée ─────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-primary-light); }
+
+/* ================================================================
+   TYPOGRAPHIE
+   ================================================================ */
+h1, h2, h3, h4 {
+  font-family: var(--font-heading);
+  color: var(--color-text-primary);
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+
+p { color: var(--color-text-secondary); }
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+a:hover { color: var(--color-primary-light); }
+
+.text-gold         { color: var(--color-primary); }
+.text-gold-gradient {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Citation biblique ─────────────────────────────────────────── */
+.bible-ref {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--color-primary);
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+/* ================================================================
+   BOUTONS
+   ================================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.5rem;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  border: 1px solid transparent;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: #FFFFFF;
+  border-color: var(--color-primary);
+}
+.btn-primary:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary-light);
+  box-shadow: var(--shadow-gold);
+  transform: translateY(-1px);
+  color: #FFFFFF;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.btn-secondary:hover {
+  background: var(--color-primary-subtle);
+  box-shadow: var(--shadow-gold);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+}
+.btn-ghost:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+}
+
+.btn-danger {
+  background: rgba(220, 38, 38, 0.1);
+  color: #DC2626;
+  border-color: rgba(220, 38, 38, 0.3);
+}
+.btn-danger:hover {
+  background: rgba(220, 38, 38, 0.2);
+  border-color: #DC2626;
+}
+
+.btn-success {
+  background: rgba(22, 163, 74, 0.1);
+  color: #16A34A;
+  border-color: rgba(22, 163, 74, 0.3);
+}
+.btn-success:hover {
+  background: rgba(22, 163, 74, 0.2);
+  border-color: #16A34A;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-sm  { padding: 0.375rem 1rem;    font-size: 0.8125rem; }
+.btn-lg  { padding: 0.875rem 2rem;    font-size: 1rem; }
+.btn-xl  { padding: 1rem 2.5rem;      font-size: 1.0625rem; font-weight: 600; }
+
+/* ── Mode nocturne : bouton primaire = dégradé or ─────────────── */
+.theme-night .btn-primary {
+  background: linear-gradient(135deg, #D4AF37, #B8922A);
+  color: #000;
+  border-color: #D4AF37;
+}
+.theme-night .btn-primary:hover {
+  background: linear-gradient(135deg, #E8C84A, #D4AF37);
+  color: #000;
+}
+.theme-night .btn-success {
+  background: rgba(56, 161, 105, 0.15);
+  color: #68D391;
+  border-color: rgba(56, 161, 105, 0.4);
+}
+.theme-night .btn-success:hover {
+  background: rgba(56, 161, 105, 0.25);
+  border-color: #38A169;
+}
+.theme-night .btn-danger {
+  background: rgba(229, 62, 62, 0.15);
+  color: #FC8181;
+  border-color: rgba(229, 62, 62, 0.4);
+}
+.theme-night .btn-danger:hover {
+  background: rgba(229, 62, 62, 0.25);
+  border-color: #E53E3E;
+}
+
+/* ================================================================
+   CARTES
+   ================================================================ */
+.card {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color var(--transition),
+    box-shadow var(--transition),
+    background-color var(--transition-md);
+}
+.card:hover {
+  border-color: var(--color-primary-light);
+  box-shadow: var(--shadow-gold);
+}
+
+.card-gold {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-gold);
+}
+
+/* ================================================================
+   INPUTS & LABELS
+   ================================================================ */
+.input {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  transition: all var(--transition);
+  outline: none;
+}
+.input::placeholder { color: var(--color-text-muted); }
+.input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
+  background: var(--color-surface-2);
+}
+
+.label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.375rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* ================================================================
+   BADGES DE STATUT
+   ================================================================ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.badge-invited   { background: rgba(59, 130, 246, 0.12);  color: #2563EB; border: 1px solid rgba(59,130,246,0.3); }
+.badge-pending   { background: rgba(234, 179, 8, 0.12);   color: #CA8A04; border: 1px solid rgba(234,179,8,0.3); }
+.badge-confirmed { background: rgba(22, 163, 74, 0.12);   color: #16A34A; border: 1px solid rgba(22,163,74,0.3); }
+.badge-rejected  { background: rgba(220, 38, 38, 0.12);   color: #DC2626; border: 1px solid rgba(220,38,38,0.3); }
+
+/* mode nocturne : badges plus lumineux */
+.theme-night .badge-invited   { color: #63B3ED; }
+.theme-night .badge-pending   { color: #ECC94B; }
+.theme-night .badge-confirmed { color: #68D391; }
+.theme-night .badge-rejected  { color: #FC8181; }
+
+/* ================================================================
+   DIVIDER DORÉ / PRIMAIRE
+   ================================================================ */
+.divider-gold {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  border: none;
+  margin: 1.5rem 0;
+}
+
+/* ================================================================
+   TABLES
+   ================================================================ */
+.table-dark {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.table-dark th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+.table-dark td {
+  padding: 0.875rem 1rem;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+}
+.table-dark tr:hover td { background: var(--color-primary-subtle); }
+
+/* ================================================================
+   TABS
+   ================================================================ */
+.tab-list {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0;
+}
+.tab-btn {
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--color-text-primary); }
+.tab-btn.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* ================================================================
+   LAYOUT
+   ================================================================ */
+.page-container {
+  min-height: 100vh;
+  background-color: var(--color-surface);
+}
+
+/* ================================================================
+   ANIMATIONS
+   ================================================================ */
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes fadeIn  {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to   { background-position:  200% center; }
+}
+@keyframes pulse-primary {
+  0%, 100% { box-shadow: 0 0 0 0 var(--color-primary-subtle); }
+  50%       { box-shadow: 0 0 0 8px transparent; }
+}
+@keyframes theme-switch {
+  0%   { opacity: 0; transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.animate-fadeIn        { animation: fadeIn 0.3s ease forwards; }
+.animate-pulse-gold    { animation: pulse-primary 2s ease-in-out infinite; }
+
+/* ── Skeleton loader ──────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-2) 25%,
+    var(--color-surface-3) 50%,
+    var(--color-surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ================================================================
+   RESPONSIVE — Mobile first
+   Breakpoints : mobile < 640px | tablet 640-1024px | desktop > 1024px
+   ================================================================ */
+@media (max-width: 1024px) {
+  main { padding: 1.5rem 1rem !important; }
+}
+
+@media (max-width: 640px) {
+  main { padding: 1rem 0.875rem !important; }
+
+  .grid-responsive-2,
+  .grid-responsive-4 { grid-template-columns: 1fr !important; }
+
+  .card { padding: 1rem !important; }
+
+  .btn    { gap: 0.35rem; padding: 0.5rem 1rem; }
+  .btn-sm { padding: 0.35rem 0.75rem; }
+  .btn-lg { padding: 0.75rem 1.5rem; }
+
+  .table-dark-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-dark { min-width: 520px; }
+
+  .tab-btn { padding: 0.5rem 0.75rem; font-size: 0.8125rem; }
+
+  h1 { font-size: 1.5rem !important; }
+
+  .input { font-size: 1rem; }
+
+  .modal-content {
+    margin: 0 !important;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .invitation-card { transform: scale(0.78); transform-origin: top center; }
+
+  .header-actions { flex-wrap: wrap; gap: 0.375rem !important; }
+}
+
+@media (max-width: 640px)  { .hide-mobile      { display: none !important; } }
+@media (min-width: 641px)  { .show-mobile-only { display: none !important; } }
