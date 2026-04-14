@@ -29,11 +29,23 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
 
         // Origines autorisées : frontend React en développement + production
-        config.setAllowedOrigins(List.of(
+        config.setAllowedOriginPatterns(List.of(
                 "http://localhost:3000",   // React CRA / serveur de dev générique
                 "http://localhost:5173",   // Vite (port par défaut)
                 "http://localhost:4173",   // Vite preview
-                "http://192.168.1.67:3000", // Accès depuis votre téléphone sur le réseau local
+
+                "http://192.168.*.*:3000", // LAN
+                "http://192.168.*.*:5173", // LAN
+                "http://192.168.*.*:4173", // LAN
+
+                "http://10.*.*.*:3000",    // hotspot / réseau privé
+                "http://10.*.*.*:5173",
+                "http://10.*.*.*:4173",
+
+                "http://172.16.*.*:3000",  // réseau privé
+                "http://172.16.*.*:5173",
+                "http://172.16.*.*:4173",
+
                 "https://icc.ga"           // domaine de production (à adapter)
         ));
 

@@ -2,887 +2,759 @@ package com.invitation.service;
 
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.EncodeHintType;
-import com.google.zxing.WriterException;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
-import com.invitation.dto.EventTicketTypeDTO;
-import com.invitation.dto.response.EventResponse;
+import com.invitation.dto.request.InvitationRequest;
 import com.itextpdf.io.font.PdfEncodings;
 import com.itextpdf.io.font.constants.StandardFonts;
 import com.itextpdf.io.image.ImageDataFactory;
 import com.itextpdf.kernel.colors.DeviceRgb;
 import com.itextpdf.kernel.font.PdfFont;
 import com.itextpdf.kernel.font.PdfFontFactory;
+import com.itextpdf.kernel.font.PdfFontFactory.EmbeddingStrategy;
 import com.itextpdf.kernel.geom.PageSize;
 import com.itextpdf.kernel.geom.Rectangle;
 import com.itextpdf.kernel.pdf.PdfDocument;
-import com.itextpdf.kernel.pdf.PdfPage;
 import com.itextpdf.kernel.pdf.PdfWriter;
 import com.itextpdf.kernel.pdf.canvas.PdfCanvas;
 import com.itextpdf.kernel.pdf.extgstate.PdfExtGState;
-import com.itextpdf.kernel.pdf.xobject.PdfImageXObject;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.awt.image.ConvolveOp;
-import java.awt.image.Kernel;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.time.format.DateTimeFormatter;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
- * Génération PDF "Affiche Immersive" pleine page A4 via iText7 {@link PdfCanvas}.
+ * Génération PDF "Concept A" — fond violet immersif, personnalisation par invité(e).
  *
  * <p>Architecture calques (bas → haut) :</p>
  * <ol>
- *   <li>Fond sombre BG_DARK (pleine page)</li>
- *   <li>Bannière pleine page floutée (Gaussian blur 3 passes) + dégradé 40 bandes power 1.8</li>
- *   <li>Médaillon logo en haut au centre (double anneau accent + disque blanc + logo transparent)</li>
- *   <li>Label "ORGANISÉ PAR FEMMES ROYALES" sous le médaillon</li>
- *   <li>Panneau glassmorphisme info (y=95 → y=425) : zone titre / zone infos / zone invité</li>
- *   <li>QR code centré (y=118, 70×70 pt)</li>
- *   <li>Talon 3 colonnes (y=0 → y=95)</li>
+ *   <li>Fond violet + 3 lueurs elliptiques</li>
+ *   <li>Médaillon logo (cercle blanc + anneau accent)</li>
+ *   <li>Label "ORGANISÉ PAR FEMMES ROYALES"</li>
+ *   <li>Badge édition pill</li>
+ *   <li>Titre événement 2 lignes</li>
+ *   <li>Divider décoratif + losange</li>
+ *   <li>Thème en italique</li>
+ *   <li>Section invité(e) : icône + NOM en grand + soulignement</li>
+ *   <li>Badge date pill blanc</li>
+ *   <li>Ligne horaire</li>
+ *   <li>Encart LIEU / CONTACT</li>
+ *   <li>Code vestimentaire</li>
+ *   <li>QR Code (pixels blancs sur fond violet)</li>
+ *   <li>Talon détachable bas (fond accent)</li>
  * </ol>
- *
- * <p>Coordonnées iText7 : origine (0,0) en BAS-GAUCHE, Y croissant vers le haut.</p>
  */
 @Service
 public class InvitationPdfService {
 
-    // =========================================================================
-    // POLICES
-    // =========================================================================
-    private static final String FONT_REGULAR_PATH = "fonts/PlayfairDisplay-Regular.ttf";
-    private static final String FONT_BOLD_PATH    = "fonts/PlayfairDisplay-Bold.ttf";
-    private static final String FONT_ITALIC_PATH  = "fonts/PlayfairDisplay-Italic.ttf";
+    // ── Constantes page A4 (points PDF) ──────────────────────────────────────
+    private static final float W      = 595.27f;
+    private static final float H      = 841.89f;
+    private static final float STUB_H = 110f;     // hauteur du talon bas
+    private static final float STUB_M = 36f;      // marge gauche/droite du talon
+    private static final float LOGO_R = 44f;      // rayon du cercle logo
+    private static final float CX     = W / 2f;   // centre horizontal
 
-    private volatile PdfFont fontRegular;
-    private volatile PdfFont fontBold;
-    private volatile PdfFont fontItalic;
-
-    // =========================================================================
-    // GÉOMÉTRIE A4
-    // =========================================================================
-    private static final float PAGE_W = PageSize.A4.getWidth();   // 595.27 pt
-    private static final float PAGE_H = PageSize.A4.getHeight();  // 841.89 pt
-
-    /** Médaillon logo centré en haut. */
-    private static final float LOGO_CX    = PAGE_W / 2f;   // 297.6 pt
-    private static final float LOGO_CY    = PAGE_H - 59f;  // ≈ 782.9 pt
-    private static final float LOGO_R     = 40f;            // rayon disque blanc
-    private static final float LOGO_RING  = 43.5f;          // anneau intérieur accent
-    private static final float LOGO_RING2 = 48f;            // anneau extérieur accent
-
-    /** Panneau info glassmorphisme. */
-    private static final float INFO_TOP   = 425f;
-    private static final float INFO_LEFT  = 40f;
-    private static final float INFO_RIGHT = PAGE_W - 40f;
-    private static final float INFO_W     = INFO_RIGHT - INFO_LEFT;  // 515.27 pt
-
-    /** QR code (centré horizontalement). */
-    private static final float QR_SIZE = 70f;
-    private static final float QR_X    = PAGE_W / 2f - QR_SIZE / 2f;  // ≈ 262.6 pt
-    private static final float QR_Y    = 118f;
-
-    /** Talon détachable. */
-    private static final float STUB_HEIGHT = 95f;
-    private static final float STUB_BAR_W  = 8f;
+    // ── Couleurs constantes ───────────────────────────────────────────────────
+    private static final DeviceRgb WHITE = new DeviceRgb(1f, 1f, 1f);
+    private static final DeviceRgb BLACK = new DeviceRgb(0f, 0f, 0f);
+    private static final DeviceRgb BG    = new DeviceRgb(0.17f, 0.02f, 0.27f);
 
     // =========================================================================
-    // PALETTE
-    // =========================================================================
-    private static final DeviceRgb BG_DARK    = rgb( 14,   0,  32);
-    private static final DeviceRgb BG_OVERLAY = rgb(  0,   0,  15);
-    private static final DeviceRgb WHITE      = rgb(255, 255, 255);
-    private static final DeviceRgb GOLD       = rgb(212, 160,  23);
-    private static final DeviceRgb LAVENDER   = rgb(200, 180, 220);
-
-    // =========================================================================
-    // POINT D'ENTRÉE
+    // POINT D'ENTRÉE PUBLIC
     // =========================================================================
 
-    public byte[] generate(
-            EventResponse event,
-            byte[] logoBytes,
-            byte[] bannerBytes,
-            String ticketTypeName,
-            String participantName,
-            String qrData
-    ) throws IOException, WriterException {
-
-        DeviceRgb accent = resolveAccentColor(event, ticketTypeName);
-
+    /**
+     * Génère un PDF A4 portrait au format Concept A.
+     *
+     * @param req      toutes les données de l'invité et de l'événement
+     * @param logoFile fichier logo (optionnel — peut être null)
+     * @return bytes du PDF généré
+     */
+    public byte[] generate(InvitationRequest req, MultipartFile logoFile) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (PdfDocument pdfDoc = new PdfDocument(new PdfWriter(baos))) {
-            pdfDoc.addNewPage(new PageSize(PAGE_W, PAGE_H));
-            PdfPage   page   = pdfDoc.getFirstPage();
-            PdfCanvas canvas = new PdfCanvas(page);
+        PdfDocument pdfDoc = new PdfDocument(new PdfWriter(baos));
+        pdfDoc.setDefaultPageSize(PageSize.A4);
+        PdfCanvas c = new PdfCanvas(pdfDoc.addNewPage());
 
-            drawBackground(canvas);
-            drawFullPagePoster(canvas, bannerBytes);
-            drawLogoMedallion(canvas, logoBytes, accent);
-            drawOrganiseLabel(canvas);
-            drawInfoOverlay(canvas, event, participantName, accent);
-            if (qrData != null && !qrData.isBlank()) {
-                drawQRCode(canvas, qrData);
-            }
-            drawStub(canvas, event, participantName, ticketTypeName, accent);
+        DeviceRgb accent = hexToRgb(req.getAccentColorHex());
 
-            canvas.release();
-        }
+        // Fonts (une instance par document pour éviter tout partage inter-documents)
+        PdfFont reg  = PdfFontFactory.createFont(StandardFonts.HELVETICA,
+                PdfEncodings.WINANSI, EmbeddingStrategy.PREFER_NOT_EMBEDDED);
+        PdfFont bold = PdfFontFactory.createFont(StandardFonts.HELVETICA_BOLD,
+                PdfEncodings.WINANSI, EmbeddingStrategy.PREFER_NOT_EMBEDDED);
+        PdfFont obl  = PdfFontFactory.createFont(StandardFonts.HELVETICA_OBLIQUE,
+                PdfEncodings.WINANSI, EmbeddingStrategy.PREFER_NOT_EMBEDDED);
+
+        // ── Positions Y (baseline depuis le bas de la page) ──────────────────
+        float logoCy  = H - 82f;                 // 759.89 - centre médaillon
+        float orgY    = logoCy - LOGO_R - 16f;   // 699.89 - label organisateur
+        float badgeCy = orgY - 24f;              // 675.89 - centre badge édition
+        float t1Y     = badgeCy - 60f;           // 615.89 - "Business Brunch"
+        float t2Y     = t1Y - 43f;               // 572.89 - "Entre femmes"
+        float divY    = t2Y - 22f;               // 550.89 - diviseur décoratif
+        float themeY  = divY - 22f;              // 528.89 - texte thème
+        float iconCy  = themeY - 28f;            // 500.89 - centre icône personne
+        float invLblY = iconCy - 16f;            // 484.89 - "INVITATION DE"
+        float nameY   = invLblY - 20f;           // 464.89 - nom de l'invité(e)
+        float underY  = nameY - 6f;              // 458.89 - soulignement
+        float dateCy  = underY - 44f;            // 414.89 - centre badge date
+        float dateBtm = dateCy - 20f;            // 394.89 - bas badge date
+        float timeY   = dateBtm - 24f;           // 370.89 - ligne horaire
+        float boxBtm  = timeY - 72f;             // 298.89 - bas encart infos
+        float drsLblY = boxBtm - 18f;            // 280.89 - label code vestim.
+        float drsTxtY = drsLblY - 13f;           // 267.89 - texte code vestim.
+        float qrSize  = 70f;
+        float qrY     = STUB_H + 26f;            // 136f - bas QR code
+
+        // ── Dessin des 14 calques ─────────────────────────────────────────────
+        drawBackground(c, accent);
+        drawLogo(c, logoFile, accent, logoCy);
+        drawOrganiserLabel(c, reg, orgY);
+        drawEditionBadge(c, bold, accent, req, badgeCy);
+        drawEventTitle(c, bold, obl, req, t1Y, t2Y);
+        drawDecorativeDivider(c, accent, divY);
+        drawTheme(c, obl, accent, req, themeY);
+        drawGuestSection(c, reg, bold, accent, req, iconCy, invLblY, nameY, underY);
+        drawDateBadge(c, bold, req, dateCy);
+        drawTimeRow(c, reg, req, timeY);
+        drawInfoBox(c, reg, bold, accent, req, boxBtm);
+        drawDressCode(c, reg, bold, accent, req, drsLblY, drsTxtY);
+        drawQRCode(c, reg, req, qrY, qrSize);
+        drawStub(c, reg, bold, accent, req);
+
+        pdfDoc.close();
         return baos.toByteArray();
     }
 
     // =========================================================================
-    // 1. FOND SOMBRE
+    // 1. FOND
     // =========================================================================
+    private void drawBackground(PdfCanvas c, DeviceRgb accent) {
+        // Base violet sombre
+        c.setFillColor(BG);
+        c.rectangle(0, 0, W, H);
+        c.fill();
 
-    private void drawBackground(PdfCanvas canvas) {
-        canvas.saveState();
-        canvas.setFillColor(BG_DARK);
-        canvas.rectangle(0, 0, PAGE_W, PAGE_H);
-        canvas.fill();
-        canvas.restoreState();
+        // Lueur rose/magenta haut-gauche
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setFillOpacity(0.22f));
+        c.setFillColor(new DeviceRgb(0.76f, 0f, 0.43f));
+        c.ellipse(-80, H * 0.55f, W * 0.65f, H + 100);
+        c.fill();
+        c.restoreState();
+
+        // Lueur violette centrale
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setFillOpacity(0.18f));
+        c.setFillColor(new DeviceRgb(0.55f, 0f, 0.78f));
+        c.ellipse(W * 0.2f, H * 0.3f, W * 1.1f, H * 0.95f);
+        c.fill();
+        c.restoreState();
+
+        // Lueur accent subtile bas-droite
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setFillOpacity(0.06f));
+        c.setFillColor(accent);
+        c.ellipse(W * 0.4f, -80, W + 100, H * 0.35f);
+        c.fill();
+        c.restoreState();
     }
 
     // =========================================================================
-    // 2. BANNIÈRE PLEINE PAGE — Gaussian blur + dégradé 40 bandes power 1.8
+    // 2. MÉDAILLON LOGO
     // =========================================================================
+    private void drawLogo(PdfCanvas c, MultipartFile logoFile, DeviceRgb accent, float cy) throws Exception {
+        // Cercle blanc (fond médaillon)
+        c.setFillColor(WHITE);
+        c.circle(CX, cy, LOGO_R);
+        c.fill();
 
-    private void drawFullPagePoster(PdfCanvas canvas, byte[] bannerBytes) throws IOException {
-        if (bannerBytes == null || bannerBytes.length == 0) return;
+        // Anneau accent 3pt
+        c.saveState();
+        c.setStrokeColor(accent);
+        c.setLineWidth(3f);
+        c.circle(CX, cy, LOGO_R + 4f);
+        c.stroke();
+        c.restoreState();
 
-        byte[] blurred = applyGaussianBlur(bannerBytes);
-        PdfImageXObject xObj = new PdfImageXObject(ImageDataFactory.create(blurred));
+        // Anneau extérieur fin 30% opacité
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setStrokeOpacity(0.30f));
+        c.setStrokeColor(WHITE);
+        c.setLineWidth(0.8f);
+        c.circle(CX, cy, LOGO_R + 9f);
+        c.stroke();
+        c.restoreState();
 
-        canvas.saveState();
-        canvas.addXObjectFittedIntoRectangle(xObj, new Rectangle(0, 0, PAGE_W, PAGE_H));
-        canvas.restoreState();
-
-        // Dégradé : opacité 85 % en bas (i=0) → 15 % en haut (i=39), courbe power 1.8
-        int   bands = 40;
-        float bandH = PAGE_H / bands;
-        canvas.saveState();
-        for (int i = 0; i < bands; i++) {
-            float t       = (float) i / (bands - 1);                           // 0=bas, 1=haut
-            float opacity = 0.85f - 0.70f * (float) Math.pow(t, 1.8);
-            canvas.setExtGState(new PdfExtGState().setFillOpacity(opacity));
-            canvas.setFillColor(BG_OVERLAY);
-            canvas.rectangle(0, i * bandH, PAGE_W, bandH + 1f);
-            canvas.fill();
-        }
-        canvas.restoreState();
-    }
-
-    // =========================================================================
-    // 3. MÉDAILLON LOGO
-    // =========================================================================
-
-    private void drawLogoMedallion(PdfCanvas canvas, byte[] logoBytes, DeviceRgb accent)
-            throws IOException {
-        // Anneau extérieur (accent plein)
-        canvas.saveState();
-        canvas.setFillColor(accent);
-        canvas.circle(LOGO_CX, LOGO_CY, LOGO_RING2);
-        canvas.fill();
-
-        // Anneau intérieur (blend accent/blanc)
-        canvas.setFillColor(blend(accent, WHITE, 0.35f));
-        canvas.circle(LOGO_CX, LOGO_CY, LOGO_RING);
-        canvas.fill();
-
-        // Disque blanc central
-        canvas.setFillColor(WHITE);
-        canvas.circle(LOGO_CX, LOGO_CY, LOGO_R);
-        canvas.fill();
-        canvas.restoreState();
-
-        // Logo clipé dans le disque, fond blanc supprimé
-        if (logoBytes != null && logoBytes.length > 0) {
-            byte[]         transparent = removeLogoWhiteBg(logoBytes);
-            PdfImageXObject logoXObj   = new PdfImageXObject(ImageDataFactory.create(transparent));
-            float r = LOGO_R - 2f;
-            canvas.saveState();
-            canvas.circle(LOGO_CX, LOGO_CY, r);
-            canvas.clip();
-            canvas.endPath();
-            canvas.addXObjectFittedIntoRectangle(logoXObj,
-                    new Rectangle(LOGO_CX - r, LOGO_CY - r, r * 2f, r * 2f));
-            canvas.restoreState();
-        }
-    }
-
-    // =========================================================================
-    // 4. LABEL ORGANISATEUR
-    // =========================================================================
-
-    private void drawOrganiseLabel(PdfCanvas canvas) throws IOException {
-        float labelY = LOGO_CY - LOGO_RING2 - 13f;   // ≈ 721 pt
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setFillOpacity(0.70f));
-        canvas.setFillColor(WHITE);
-        drawCenteredText(canvas, getFontRegular(), "ORGANISÉ PAR FEMMES ROYALES",
-                PAGE_W / 2f, labelY, 7.5f);
-        canvas.restoreState();
-    }
-
-    // =========================================================================
-    // 5. PANNEAU INFO GLASSMORPHISME
-    //    Zone titre (42 pt haut) / Zone infos (contenu) / Zone invité (30 pt bas)
-    // =========================================================================
-
-    private void drawInfoOverlay(PdfCanvas canvas, EventResponse event,
-                                  String participantName, DeviceRgb accent) throws IOException {
-        PdfFont bold    = getFontBold();
-        PdfFont regular = getFontRegular();
-        PdfFont italic  = getFontItalic();
-
-        float panelH = INFO_TOP - STUB_HEIGHT;   // 330 pt
-
-        // ── Fond glassmorphisme (panneau entier) ──────────────────────────────
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setFillOpacity(0.15f));
-        canvas.setFillColor(WHITE);
-        canvas.rectangle(INFO_LEFT, STUB_HEIGHT, INFO_W, panelH);
-        canvas.fill();
-        canvas.restoreState();
-
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setStrokeOpacity(0.18f));
-        canvas.setStrokeColor(WHITE);
-        canvas.setLineWidth(0.5f);
-        canvas.rectangle(INFO_LEFT, STUB_HEIGHT, INFO_W, panelH);
-        canvas.stroke();
-        canvas.restoreState();
-
-        // ── ZONE TITRE (42 pt en haut du panneau) ────────────────────────────
-        float titleZoneH   = 42f;
-        float titleZoneBot = INFO_TOP - titleZoneH;   // 383 pt
-
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setFillOpacity(0.32f));
-        canvas.setFillColor(accent);
-        canvas.rectangle(INFO_LEFT, titleZoneBot, INFO_W, titleZoneH);
-        canvas.fill();
-        canvas.restoreState();
-
-        // Bordure inférieure zone titre
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setStrokeOpacity(0.50f));
-        canvas.setStrokeColor(accent);
-        canvas.setLineWidth(1f);
-        canvas.moveTo(INFO_LEFT, titleZoneBot).lineTo(INFO_RIGHT, titleZoneBot).stroke();
-        canvas.restoreState();
-
-        String title   = event.getTitle() != null ? event.getTitle().toUpperCase() : "ÉVÉNEMENT";
-        float  titleSz = fitFontSize(title, bold, INFO_W - 28f, 16f, 9f);
-        float  titleY  = titleZoneBot + (titleZoneH - titleSz) / 2f + 1f;
-
-        canvas.saveState();
-        canvas.setFillColor(WHITE);
-        drawCenteredText(canvas, bold, title, PAGE_W / 2f, titleY, titleSz);
-        canvas.restoreState();
-
-        // ── ZONE INFOS (description, règle, date, heure, lieu, dress) ─────────
-        float cL = INFO_LEFT + 14f;
-        float cW = INFO_W - 28f;
-        float y  = titleZoneBot - 13f;   // ≈ 370 pt
-
-        // Description (italique, blanc 72 %)
-        String desc = event.getDescription() != null
-                ? truncate(event.getDescription().trim(), 160) : null;
-        if (desc != null && !desc.isBlank() && y > 215f) {
-            canvas.saveState();
-            canvas.setExtGState(new PdfExtGState().setFillOpacity(0.72f));
-            canvas.setFillColor(WHITE);
-            float yAfter = drawWrappedText(canvas, italic, desc, cL, y, cW, 8.5f, 12.5f);
-            canvas.restoreState();
-            y = yAfter - 10f;
-        }
-
-        // Ligne décorative ◆
-        if (y > 215f) {
-            drawDecorativeRule(canvas, accent, y + 3f);
-            y -= 14f;
-        }
-
-        // Pill date + heure
-        if (event.getStartDate() != null && y > 215f) {
-            DateTimeFormatter dateFmt = DateTimeFormatter.ofPattern("EEEE dd MMMM yyyy", Locale.FRENCH);
-            DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH'h'mm");
-            String dateStr = event.getStartDate().format(dateFmt);
-            String timeStr = event.getStartDate().format(timeFmt);
-            if (event.getEndDate() != null) timeStr += " – " + event.getEndDate().format(timeFmt);
-
-            y = drawDatePill(canvas, bold, dateStr, cL, y);
-            y -= 8f;
-
-            if (y > 215f) {
-                canvas.saveState();
-                canvas.setFillColor(LAVENDER);
-                canvas.beginText().setFontAndSize(regular, 8.5f)
-                      .moveText(cL, y).showText(timeStr).endText();
-                canvas.restoreState();
-                y -= 16f;
+        // Image logo (si fournie — fond blanc supprimé)
+        if (logoFile != null && !logoFile.isEmpty()) {
+            try {
+                BufferedImage src = ImageIO.read(logoFile.getInputStream());
+                if (src != null) {
+                    BufferedImage noWhite = removeWhiteBackground(src);
+                    byte[] imgBytes = toImgBytes(noWhite);
+                    float sz = LOGO_R * 1.80f;
+                    c.addImageFittedIntoRectangle(
+                            ImageDataFactory.create(imgBytes),
+                            new Rectangle(CX - sz / 2f, cy - sz / 2f, sz, sz),
+                            false
+                    );
+                }
+            } catch (Exception e) {
+                // Logo optionnel — on continue sans planter
             }
         }
-
-        // Cellule LIEU (pleine largeur)
-        if (event.getLocation() != null && !event.getLocation().isBlank() && y > 220f) {
-            y = drawInfoCell(canvas, bold, regular, "LIEU", event.getLocation(),
-                    cL, y, cW, accent);
-            y -= 8f;
-        }
-
-        // Dress code
-        if (event.getDressCode() != null && !event.getDressCode().isBlank() && y > 215f) {
-            canvas.saveState();
-            canvas.setFillColor(GOLD);
-            canvas.beginText().setFontAndSize(bold, 7.5f)
-                  .moveText(cL, y).showText("CODE VESTIMENTAIRE").endText();
-            canvas.restoreState();
-
-            float lblW = bold.getWidth("CODE VESTIMENTAIRE ", 7.5f);
-            canvas.saveState();
-            canvas.setExtGState(new PdfExtGState().setFillOpacity(0.80f));
-            canvas.setFillColor(WHITE);
-            canvas.beginText().setFontAndSize(italic, 8f)
-                  .moveText(cL + lblW, y).showText(truncate(event.getDressCode(), 45)).endText();
-            canvas.restoreState();
-        }
-
-        // ── ZONE INVITÉ (barre accent + label + prénom) ──────────────────────
-        float guestY = QR_Y + QR_SIZE + 10f;   // ≈ 198 pt
-        float guestH = 30f;
-
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setFillOpacity(0.24f));
-        canvas.setFillColor(accent);
-        canvas.rectangle(INFO_LEFT, guestY, INFO_W, guestH);
-        canvas.fill();
-        canvas.restoreState();
-
-        // Séparateur haut zone invité
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setStrokeOpacity(0.40f));
-        canvas.setStrokeColor(accent);
-        canvas.setLineWidth(0.8f);
-        canvas.moveTo(INFO_LEFT, guestY + guestH).lineTo(INFO_RIGHT, guestY + guestH).stroke();
-        canvas.restoreState();
-
-        canvas.saveState();
-        canvas.setFillColor(LAVENDER);
-        canvas.beginText().setFontAndSize(regular, 7f)
-              .moveText(cL, guestY + guestH - 11f).showText("INVITÉ(E)").endText();
-        canvas.restoreState();
-
-        if (participantName != null && !participantName.isBlank()) {
-            String guest  = truncate(participantName, 26);
-            float  nameSz = fitFontSize(guest, bold, INFO_W * 0.60f, 13f, 9f);
-            canvas.saveState();
-            canvas.setFillColor(accent);
-            canvas.beginText().setFontAndSize(bold, nameSz)
-                  .moveText(cL, guestY + 6f).showText(guest).endText();
-            canvas.restoreState();
-        }
     }
 
     // =========================================================================
-    // 6. QR CODE — pixels blancs sur fond transparent, centré
+    // 3. LABEL ORGANISATEUR
     // =========================================================================
+    private void drawOrganiserLabel(PdfCanvas c, PdfFont reg, float y) throws Exception {
+        String label = "ORGANIS\u00C9 PAR  FEMMES ROYALES";
+        centeredText(c, reg, 8f, WHITE, 0.60f, label, y);
+    }
 
-    private void drawQRCode(PdfCanvas canvas, String qrData) throws WriterException, IOException {
-        Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
-        hints.put(EncodeHintType.MARGIN, 1);
-        hints.put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M);
+    // =========================================================================
+    // 4. BADGE ÉDITION
+    // =========================================================================
+    private void drawEditionBadge(PdfCanvas c, PdfFont bold, DeviceRgb accent,
+                                   InvitationRequest req, float cy) throws Exception {
+        float bw = 148f, bh = 20f, br = 10f;
+        float bx = CX - bw / 2f, by = cy - bh / 2f;
 
-        BitMatrix matrix = new QRCodeWriter().encode(qrData, BarcodeFormat.QR_CODE, 300, 300, hints);
+        // Fond accent 15% opacité
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setFillOpacity(0.15f));
+        c.setFillColor(accent);
+        c.roundRectangle(bx, by, bw, bh, br);
+        c.fill();
+        c.restoreState();
 
+        // Bordure accent 1pt
+        c.saveState();
+        c.setStrokeColor(accent);
+        c.setLineWidth(1f);
+        c.roundRectangle(bx, by, bw, bh, br);
+        c.stroke();
+        c.restoreState();
+
+        // Texte espacé en majuscules
+        String txt = "3 \u00C8 M E   \u00C9 D I T I O N";
+        centeredText(c, bold, 8.5f, accent, 1f, txt, cy - 2.8f);
+    }
+
+    // =========================================================================
+    // 5. TITRE ÉVÉNEMENT
+    // =========================================================================
+    private void drawEventTitle(PdfCanvas c, PdfFont bold, PdfFont obl,
+                                 InvitationRequest req, float t1Y, float t2Y) throws Exception {
+        String line1 = req.getEventTitleLine1() != null ? req.getEventTitleLine1() : "Business Brunch";
+        String line2 = req.getEventTitleLine2() != null ? req.getEventTitleLine2() : "Entre femmes";
+        centeredText(c, bold, 46f, WHITE, 1f,    line1, t1Y);
+        centeredText(c, obl,  33f, WHITE, 0.92f, line2, t2Y);
+    }
+
+    // =========================================================================
+    // 6. DIVIDER DÉCORATIF
+    // =========================================================================
+    private void drawDecorativeDivider(PdfCanvas c, DeviceRgb accent, float y) {
+        float margin = 45f, gapInner = 68f, gapAccent = 63f;
+
+        // Ligne gauche blanche 16%
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setStrokeOpacity(0.16f));
+        c.setStrokeColor(WHITE);
+        c.setLineWidth(0.8f);
+        c.moveTo(margin, y);
+        c.lineTo(CX - gapInner, y);
+        c.stroke();
+        c.restoreState();
+
+        // Ligne accent centrale
+        c.saveState();
+        c.setStrokeColor(accent);
+        c.setLineWidth(1.6f);
+        c.moveTo(CX - gapAccent, y);
+        c.lineTo(CX + gapAccent, y);
+        c.stroke();
+        c.restoreState();
+
+        // Ligne droite blanche 16%
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setStrokeOpacity(0.16f));
+        c.setStrokeColor(WHITE);
+        c.setLineWidth(0.8f);
+        c.moveTo(CX + gapInner, y);
+        c.lineTo(W - margin, y);
+        c.stroke();
+        c.restoreState();
+
+        // Losange ◆ accent au centre
+        float d = 4f;
+        c.saveState();
+        c.setFillColor(accent);
+        c.moveTo(CX, y + d);
+        c.lineTo(CX + d, y);
+        c.lineTo(CX, y - d);
+        c.lineTo(CX - d, y);
+        c.closePath();
+        c.fill();
+        c.restoreState();
+    }
+
+    // =========================================================================
+    // 7. THÈME
+    // =========================================================================
+    private void drawTheme(PdfCanvas c, PdfFont obl, DeviceRgb accent,
+                            InvitationRequest req, float y) throws Exception {
+        String theme = req.getTheme() != null ? req.getTheme()
+                : "Femme l\u00E8ve-toi et b\u00E2tis ta nation";
+        // Guillemets français (WinAnsi 0xAB / 0xBB)
+        String display = "\u00AB " + theme + " \u00BB";
+        centeredText(c, obl, 12f, accent, 1f, display, y);
+    }
+
+    // =========================================================================
+    // 8. SECTION INVITÉ(E)
+    // =========================================================================
+    private void drawGuestSection(PdfCanvas c, PdfFont reg, PdfFont bold, DeviceRgb accent,
+                                   InvitationRequest req,
+                                   float iconCy, float labelY, float nameY, float underY) throws Exception {
+        // ── Icône personne ──
+        c.saveState();
+        c.setFillColor(accent);
+        c.circle(CX, iconCy + 7f, 5f);
+        c.fill();
+        c.setStrokeColor(accent);
+        c.setLineWidth(1.5f);
+        c.moveTo(CX - 12f, iconCy - 4f);
+        c.curveTo(CX - 5f, iconCy + 2f, CX + 5f, iconCy + 2f, CX + 12f, iconCy - 4f);
+        c.stroke();
+        c.restoreState();
+
+        // ── "INVITATION DE" ──
+        centeredText(c, reg, 8f, WHITE, 0.55f, "INVITATION DE", labelY);
+
+        // ── Nom de l'invité(e) EN GRAND, couleur accent ──
+        String guestName = req.getGuestName() != null
+                ? req.getGuestName().toUpperCase() : "VOTRE NOM";
+        centeredText(c, bold, 22f, accent, 1f, guestName, nameY);
+
+        // ── Soulignement sous le nom ──
+        float nameW = bold.getWidth(guestName, 22f);
+        c.saveState();
+        c.setStrokeColor(accent);
+        c.setLineWidth(1f);
+        c.moveTo(CX - nameW / 2f - 10f, underY);
+        c.lineTo(CX + nameW / 2f + 10f, underY);
+        c.stroke();
+        c.restoreState();
+    }
+
+    // =========================================================================
+    // 9. BADGE DATE
+    // =========================================================================
+    private void drawDateBadge(PdfCanvas c, PdfFont bold, InvitationRequest req, float cy) throws Exception {
+        float bw = 295f, bh = 40f, br = 20f;
+        float bx = CX - bw / 2f, by = cy - bh / 2f;
+
+        // Fond blanc
+        c.setFillColor(WHITE);
+        c.roundRectangle(bx, by, bw, bh, br);
+        c.fill();
+
+        String dateStr = req.getDate() != null ? req.getDate() : "Samedi 25 Avril 2026";
+        DeviceRgb dateColor = new DeviceRgb(0.29f, 0f, 0.44f);
+
+        // Icône calendrier
+        float textW  = bold.getWidth(dateStr, 16f);
+        float iconX  = CX - textW / 2f - 26f;
+        float iconBy = cy - 7f;
+        c.saveState();
+        c.setStrokeColor(dateColor);
+        c.setFillColor(dateColor);
+        c.setLineWidth(1f);
+        // Corps du calendrier
+        c.roundRectangle(iconX, iconBy, 14f, 12f, 1.5f);
+        c.stroke();
+        // Barre du haut
+        c.rectangle(iconX + 0.5f, iconBy + 8f, 13f, 3.5f);
+        c.fill();
+        // Anneaux de reliure
+        c.circle(iconX + 4f, iconBy + 12f, 1.8f);
+        c.stroke();
+        c.circle(iconX + 10f, iconBy + 12f, 1.8f);
+        c.stroke();
+        c.restoreState();
+
+        // Texte date
+        centeredText(c, bold, 16f, dateColor, 1f, dateStr, cy - 5.5f);
+    }
+
+    // =========================================================================
+    // 10. LIGNE HORAIRE
+    // =========================================================================
+    private void drawTimeRow(PdfCanvas c, PdfFont reg, InvitationRequest req, float y) throws Exception {
+        String ts    = req.getTimeStart() != null ? req.getTimeStart() : "09h00";
+        String te    = req.getTimeEnd()   != null ? req.getTimeEnd()   : "16h30";
+        String label = ts + "  \u00B7  " + te;   // · = U+00B7
+
+        float textW  = reg.getWidth(label, 12f);
+        float iconW  = 18f;
+        float gap    = 7f;
+        float totalW = iconW + gap + textW;
+        float startX = CX - totalW / 2f;
+        float iconCx = startX + iconW / 2f;
+        float textX  = startX + iconW + gap;
+
+        // Icône horloge
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setStrokeOpacity(0.82f));
+        c.setStrokeColor(WHITE);
+        c.setLineWidth(1f);
+        c.circle(iconCx, y + 5f, 7f);
+        c.stroke();
+        c.moveTo(iconCx, y + 5f);
+        c.lineTo(iconCx, y + 10f);
+        c.stroke();
+        c.moveTo(iconCx, y + 5f);
+        c.lineTo(iconCx + 4.5f, y + 5f);
+        c.stroke();
+        c.restoreState();
+
+        // Texte horaire
+        textAt(c, reg, 12f, WHITE, 0.82f, label, textX, y);
+    }
+
+    // =========================================================================
+    // 11. ENCART LIEU / CONTACT
+    // =========================================================================
+    private void drawInfoBox(PdfCanvas c, PdfFont reg, PdfFont bold, DeviceRgb accent,
+                              InvitationRequest req, float by) throws Exception {
+        float bx = 46f, bw = W - 92f, bh = 64f, br = 10f;
+
+        // Fond semi-transparent
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setFillOpacity(0.58f));
+        c.setFillColor(new DeviceRgb(0.28f, 0.02f, 0.40f));
+        c.roundRectangle(bx, by, bw, bh, br);
+        c.fill();
+        c.restoreState();
+
+        // Bordure blanc 25%
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setStrokeOpacity(0.25f));
+        c.setStrokeColor(WHITE);
+        c.setLineWidth(0.8f);
+        c.roundRectangle(bx, by, bw, bh, br);
+        c.stroke();
+        c.restoreState();
+
+        // Séparateur vertical centré
+        float sepX = bx + bw / 2f;
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setStrokeOpacity(0.20f));
+        c.setStrokeColor(WHITE);
+        c.setLineWidth(0.8f);
+        c.moveTo(sepX, by + 8f);
+        c.lineTo(sepX, by + bh - 8f);
+        c.stroke();
+        c.restoreState();
+
+        float boxCy = by + bh / 2f;    // centre vertical de la box
+
+        // ── COLONNE GAUCHE : LIEU ──────────────────────────────────────────
+        String venue = req.getVenueName() != null ? req.getVenueName() : "Le Marial Amissa";
+        String city  = req.getVenueCity() != null ? req.getVenueCity() : "Akanda, Libreville";
+        float lx = bx + 16f;
+
+        // Icône pin localisation
+        float px = lx, py = boxCy - 3f;
+        c.saveState();
+        c.setFillColor(accent);
+        c.circle(px + 4f, py + 7f, 4f);
+        c.fill();
+        c.moveTo(px, py + 5f);
+        c.lineTo(px + 8f, py + 5f);
+        c.lineTo(px + 4f, py);
+        c.closePath();
+        c.fill();
+        // Trou du pin (couleur box)
+        c.setFillColor(new DeviceRgb(0.28f, 0.02f, 0.40f));
+        c.circle(px + 4f, py + 7f, 2f);
+        c.fill();
+        c.restoreState();
+
+        float tx = lx + 14f;
+        textAt(c, bold, 8.5f, accent, 1f,    "LIEU",  tx, boxCy + 14f);
+        textAt(c, bold, 12f,  WHITE,  1f,    venue,   tx, boxCy + 3f);
+        textAt(c, reg,  10f,  WHITE,  0.78f, city,    tx, boxCy - 9f);
+
+        // ── COLONNE DROITE : CONTACT ──────────────────────────────────────
+        String ph1 = req.getPhone1() != null ? req.getPhone1() : "077 46 06 22";
+        String ph2 = req.getPhone2() != null ? req.getPhone2() : "066 28 55 93";
+        float rx = sepX + 16f;
+
+        // Icône téléphone
+        float phx = rx, phy = boxCy - 5f;
+        c.saveState();
+        c.setStrokeColor(accent);
+        c.setLineWidth(1f);
+        c.roundRectangle(phx, phy, 8f, 12f, 2f);
+        c.stroke();
+        c.setFillColor(accent);
+        c.circle(phx + 4f, phy + 8f, 2f);
+        c.fill();
+        c.restoreState();
+
+        float rtx = rx + 14f;
+        textAt(c, bold, 8.5f, accent, 1f,    "CONTACT", rtx, boxCy + 14f);
+        textAt(c, bold, 12f,  WHITE,  1f,    ph1,       rtx, boxCy + 3f);
+        textAt(c, bold, 12f,  WHITE,  1f,    ph2,       rtx, boxCy - 9f);
+    }
+
+    // =========================================================================
+    // 12. CODE VESTIMENTAIRE
+    // =========================================================================
+    private void drawDressCode(PdfCanvas c, PdfFont reg, PdfFont bold, DeviceRgb accent,
+                                InvitationRequest req, float lblY, float txtY) throws Exception {
+        // Icône cintre (accent)
+        float labelW = bold.getWidth("CODE VESTIMENTAIRE", 8f);
+        float hx = CX - labelW / 2f - 20f;
+        float hy = lblY - 2f;
+
+        c.saveState();
+        c.setStrokeColor(accent);
+        c.setLineWidth(1.1f);
+        // Crochet du haut
+        c.arc(hx - 2f, hy + 5f, hx + 6f, hy + 11f, 0, 200);
+        c.stroke();
+        // Pente gauche
+        c.moveTo(hx + 2f, hy + 8f);
+        c.lineTo(hx - 10f, hy + 1f);
+        c.stroke();
+        // Pente droite
+        c.moveTo(hx + 2f, hy + 8f);
+        c.lineTo(hx + 14f, hy + 1f);
+        c.stroke();
+        // Barre du bas
+        c.moveTo(hx - 10f, hy + 1f);
+        c.lineTo(hx + 14f, hy + 1f);
+        c.stroke();
+        c.restoreState();
+
+        centeredText(c, bold, 8f,   accent, 1f,    "CODE VESTIMENTAIRE", lblY);
+        String dress = req.getDressCode() != null ? req.getDressCode()
+                : "Chic et Class en Jean avec une touche Africaine";
+        centeredText(c, reg,  9.5f, WHITE,  0.85f, dress, txtY);
+    }
+
+    // =========================================================================
+    // 13. QR CODE
+    // =========================================================================
+    private void drawQRCode(PdfCanvas c, PdfFont reg, InvitationRequest req,
+                             float qrY, float qrSize) throws Exception {
+        String url = (req.getQrUrl() != null && !req.getQrUrl().isBlank())
+                ? req.getQrUrl()
+                : "https://femmes-royales.ga/confirm";
+
+        // Génération ZXing
+        QRCodeWriter writer = new QRCodeWriter();
+        Map<EncodeHintType, Object> hints = Map.of(
+                EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M,
+                EncodeHintType.MARGIN, 1
+        );
+        BitMatrix matrix = writer.encode(url, BarcodeFormat.QR_CODE, 300, 300, hints);
+
+        // Pixels blancs sur fond transparent (visible sur fond violet)
         BufferedImage qrImg = new BufferedImage(300, 300, BufferedImage.TYPE_INT_ARGB);
-        for (int px = 0; px < 300; px++) {
-            for (int py = 0; py < 300; py++) {
-                qrImg.setRGB(px, py, matrix.get(px, py) ? 0xFFFFFFFF : 0x00000000);
-            }
-        }
-        ByteArrayOutputStream qrBaos = new ByteArrayOutputStream();
-        ImageIO.write(qrImg, "PNG", qrBaos);
+        for (int x = 0; x < 300; x++)
+            for (int y = 0; y < 300; y++)
+                qrImg.setRGB(x, y, matrix.get(x, y) ? 0xFFFFFFFF : 0x00000000);
 
-        PdfImageXObject qrXObj = new PdfImageXObject(ImageDataFactory.create(qrBaos.toByteArray()));
-        canvas.saveState();
-        canvas.addXObjectFittedIntoRectangle(qrXObj, new Rectangle(QR_X, QR_Y, QR_SIZE, QR_SIZE));
-        canvas.restoreState();
+        // Fond blanc semi-transparent derrière le QR
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setFillOpacity(0.10f));
+        c.setFillColor(WHITE);
+        c.roundRectangle(CX - qrSize / 2f - 10f, qrY - 10f, qrSize + 20f, qrSize + 20f, 8f);
+        c.fill();
+        c.restoreState();
 
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setFillOpacity(0.55f));
-        canvas.setFillColor(WHITE);
-        drawCenteredText(canvas, getFontRegular(), "SCANNER POUR CONFIRMER",
-                PAGE_W / 2f, QR_Y - 10f, 6.5f);
-        canvas.restoreState();
+        // Image QR
+        c.addImageFittedIntoRectangle(
+                ImageDataFactory.create(toImgBytes(qrImg)),
+                new Rectangle(CX - qrSize / 2f, qrY, qrSize, qrSize),
+                false
+        );
+
+        // Légende
+        centeredText(c, reg, 7f, WHITE, 0.52f, "SCANNER POUR CONFIRMER", qrY - 10f);
     }
 
     // =========================================================================
-    // 7. TALON 3 COLONNES
+    // 14. TALON DÉTACHABLE
     // =========================================================================
+    private void drawStub(PdfCanvas c, PdfFont reg, PdfFont bold,
+                           DeviceRgb accent, InvitationRequest req) throws Exception {
 
-    private void drawStub(PdfCanvas canvas, EventResponse event, String participantName,
-                          String ticketTypeName, DeviceRgb accent) throws IOException {
-        PdfFont bold    = getFontBold();
-        PdfFont regular = getFontRegular();
+        // ── Ligne pointillée de découpe ──
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setStrokeOpacity(0.38f));
+        c.setStrokeColor(WHITE);
+        c.setLineWidth(0.9f);
+        c.setLineDash(5f, 4f, 0f);
+        c.moveTo(STUB_M + 20f, STUB_H);
+        c.lineTo(W - STUB_M - 20f, STUB_H);
+        c.stroke();
+        c.restoreState();
 
-        // Fond accent semi-transparent
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setFillOpacity(0.22f));
-        canvas.setFillColor(accent);
-        canvas.rectangle(0, 0, PAGE_W, STUB_HEIGHT);
-        canvas.fill();
-        canvas.restoreState();
-
-        // Barre accent gauche (opaque)
-        canvas.saveState();
-        canvas.setFillColor(accent);
-        canvas.rectangle(0, 0, STUB_BAR_W, STUB_HEIGHT);
-        canvas.fill();
-        canvas.restoreState();
-
-        // Ligne de séparation
-        canvas.saveState();
-        canvas.setStrokeColor(accent);
-        canvas.setLineWidth(1.2f);
-        canvas.moveTo(0, STUB_HEIGHT).lineTo(PAGE_W, STUB_HEIGHT).stroke();
-        canvas.restoreState();
-
-        // Trous de perforation
-        canvas.saveState();
-        canvas.setFillColor(BG_DARK);
-        for (float hx : new float[]{18f, PAGE_W / 2f, PAGE_W - 18f}) {
-            canvas.circle(hx, STUB_HEIGHT, 5f);
-            canvas.fill();
-        }
-        canvas.restoreState();
-
-        // Séparateurs verticaux colonnes
-        float col1End = 190f;
-        float col2End = 405f;
-        drawDashedLine(canvas, col1End, 6f, STUB_HEIGHT - 6f, accent);
-        drawDashedLine(canvas, col2End, 6f, STUB_HEIGHT - 6f, accent);
-
-        String typeLabel = (ticketTypeName != null && !ticketTypeName.isBlank())
-                ? ticketTypeName.toUpperCase() : "STANDARD";
-        Integer price    = resolveTicketPrice(event, typeLabel);
-        float   centerY  = STUB_HEIGHT / 2f;
-
-        // ── Colonne 1 : TICKET / type ─────────────────────────────────────────
-        float c1CX = (STUB_BAR_W + col1End) / 2f;
-
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setFillOpacity(0.60f));
-        canvas.setFillColor(WHITE);
-        drawCenteredText(canvas, regular, "TICKET", c1CX, centerY + 16f, 7f);
-        canvas.restoreState();
-
-        float typeSz = fitFontSize(typeLabel, bold, col1End - STUB_BAR_W - 16f, 14f, 9f);
-        canvas.saveState();
-        canvas.setFillColor(accent);
-        drawCenteredText(canvas, bold, typeLabel, c1CX, centerY - 4f, typeSz);
-        canvas.restoreState();
-
-        // ── Colonne 2 : Prix centré ───────────────────────────────────────────
-        float c2CX = (col1End + col2End) / 2f;
-
-        if (price != null) {
-            canvas.saveState();
-            canvas.setFillColor(WHITE);
-            drawCenteredText(canvas, bold, formatPrice(price), c2CX, centerY + 6f, 18f);
-            canvas.restoreState();
-
-            canvas.saveState();
-            canvas.setExtGState(new PdfExtGState().setFillOpacity(0.65f));
-            canvas.setFillColor(LAVENDER);
-            drawCenteredText(canvas, regular, "F C F A", c2CX, centerY - 11f, 8f);
-            canvas.restoreState();
-        } else {
-            canvas.saveState();
-            canvas.setFillColor(WHITE);
-            drawCenteredText(canvas, bold, "INVITATION", c2CX, centerY + 2f, 11f);
-            canvas.restoreState();
+        // ── Trous de perforation ──
+        for (float hx : new float[]{STUB_M + 20f, W - STUB_M - 20f}) {
+            c.saveState();
+            c.setFillColor(BG);
+            c.circle(hx, STUB_H, 8.5f);
+            c.fill();
+            c.setExtGState(new PdfExtGState().setStrokeOpacity(0.28f));
+            c.setStrokeColor(WHITE);
+            c.setLineWidth(0.7f);
+            c.circle(hx, STUB_H, 8.5f);
+            c.stroke();
+            c.restoreState();
         }
 
-        // ── Colonne 3 : Titre + date + prénom ────────────────────────────────
-        float c3CX = (col2End + PAGE_W) / 2f;
-        float c3W  = PAGE_W - col2End - 10f;
+        // ── Rectangle fond accent arrondi ──
+        float stubH = STUB_H - 18f;   // hauteur du rectangle = 92pt
+        c.saveState();
+        c.setFillColor(accent);
+        c.roundRectangle(STUB_M, 11f, W - 2f * STUB_M, stubH, 9f);
+        c.fill();
+        c.restoreState();
 
-        String titleShort = truncate(event.getTitle() != null ? event.getTitle() : "ÉVÉNEMENT", 22);
-        float  titleSz3   = fitFontSize(titleShort, bold, c3W, 9f, 7f);
+        // ── Overlay sombre 12% sur la moitié basse (profondeur) ──
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setFillOpacity(0.12f));
+        c.setFillColor(BLACK);
+        c.roundRectangle(STUB_M, 11f, W - 2f * STUB_M, stubH / 2f, 9f);
+        c.fill();
+        c.restoreState();
 
-        canvas.saveState();
-        canvas.setFillColor(WHITE);
-        drawCenteredText(canvas, bold, titleShort, c3CX, centerY + 14f, titleSz3);
-        canvas.restoreState();
+        // ── Textes du talon ──
+        float stubCy = 11f + stubH / 2f;  // 57pt — centre vertical
 
-        if (event.getStartDate() != null) {
-            String dateShort = event.getStartDate()
-                    .format(DateTimeFormatter.ofPattern("dd / MM / yyyy"));
-            canvas.saveState();
-            canvas.setExtGState(new PdfExtGState().setFillOpacity(0.65f));
-            canvas.setFillColor(LAVENDER);
-            drawCenteredText(canvas, regular, dateShort, c3CX, centerY - 2f, 8f);
-            canvas.restoreState();
-        }
+        // Colonne gauche : type de billet
+        String ticketType = req.getTicketType() != null
+                ? req.getTicketType().toUpperCase() : "STANDARD";
+        textAt(c, reg,  7.5f, BLACK, 0.72f, "T  I  C  K  E  T", STUB_M + 16f, stubCy + 13f);
+        textAt(c, bold, 15f,  BLACK, 1f,    ticketType,          STUB_M + 16f, stubCy - 7f);
 
-        if (participantName != null && !participantName.isBlank()) {
-            canvas.saveState();
-            canvas.setExtGState(new PdfExtGState().setFillOpacity(0.50f));
-            canvas.setFillColor(WHITE);
-            drawCenteredText(canvas, regular, truncate(participantName, 16), c3CX, centerY - 15f, 7.5f);
-            canvas.restoreState();
-        }
+        // Colonne centrale : prix
+        String price  = req.getTicketPrice() != null ? req.getTicketPrice() : "25 000";
+        float  priceW = bold.getWidth(price, 36f);
+        textAt(c, bold, 36f,  BLACK, 1f,    price,    CX - priceW / 2f, stubCy - 8f);
+        centeredText(c, reg, 9f, BLACK, 0.85f, "F  C  F  A", stubCy - 22f);
+
+        // Colonne droite : infos événement
+        String guestName = req.getGuestName()  != null ? req.getGuestName()  : "Invit\u00E9(e)";
+        String dateShort = req.getDate()       != null ? req.getDate()       : "25 Avril 2026";
+        String venue     = req.getVenueName()  != null ? req.getVenueName()  : "Le Marial Amissa";
+        String city      = req.getVenueCity()  != null ? req.getVenueCity()  : "Akanda";
+        float  rightEdge = W - STUB_M - 16f;
+
+        textAtRight(c, bold, 8.5f, BLACK, 0.82f, "BUSINESS BRUNCH ENTRE FEMMES", rightEdge, stubCy + 13f);
+        textAtRight(c, reg,  8f,   BLACK, 0.68f, guestName + " \u00B7 " + dateShort,        rightEdge, stubCy + 3f);
+        textAtRight(c, reg,  7f,   BLACK, 0.55f, venue + ", " + city,                       rightEdge, stubCy - 7f);
     }
 
     // =========================================================================
-    // MÉTHODES DE DESSIN RÉUTILISABLES
+    // MÉTHODES UTILITAIRES
     // =========================================================================
 
-    /** Ligne décorative : deux traits + losange central. */
-    private void drawDecorativeRule(PdfCanvas canvas, DeviceRgb accent, float y) {
-        float cx  = PAGE_W / 2f;
-        float gap = 14f;
-        float len = 80f;
-        float d   = 4f;
-
-        canvas.saveState();
-        canvas.setStrokeColor(accent).setLineWidth(0.6f);
-        canvas.moveTo(cx - gap - len, y).lineTo(cx - gap, y).stroke();
-        canvas.moveTo(cx + gap,       y).lineTo(cx + gap + len, y).stroke();
-
-        canvas.setFillColor(accent);
-        canvas.moveTo(cx, y + d).lineTo(cx + d, y)
-              .lineTo(cx, y - d).lineTo(cx - d, y)
-              .closePath().fill();
-        canvas.restoreState();
+    /**
+     * Affiche du texte à la position (x, y) avec la couleur et l'opacité données.
+     */
+    private void textAt(PdfCanvas c, PdfFont font, float size, DeviceRgb color,
+                        float opacity, String text, float x, float y) throws Exception {
+        c.saveState();
+        c.setExtGState(new PdfExtGState().setFillOpacity(opacity));
+        c.setFillColor(color);
+        c.beginText();
+        c.setFontAndSize(font, size);
+        c.moveText(x, y);
+        c.showText(text);
+        c.endText();
+        c.restoreState();
     }
 
     /**
-     * Pill date : fond blanc arrondi, texte BG_DARK à l'intérieur.
-     * @return nouveau Y (bas de la pill)
+     * Affiche du texte aligné à droite se terminant à {@code x}.
      */
-    private float drawDatePill(PdfCanvas canvas, PdfFont bold, String dateStr,
-                                float x, float y) throws IOException {
-        float pillH   = 22f;
-        float pillPad = 10f;
-        float textSz  = 8.5f;
-        String upper  = dateStr.toUpperCase();
-        float  pillW  = bold.getWidth(upper, textSz) + pillPad * 2f;
-        float  pillY  = y - pillH;
-
-        canvas.saveState();
-        canvas.setFillColor(WHITE);
-        drawRoundedRect(canvas, x, pillY, pillW, pillH, pillH / 2f);
-        canvas.fill();
-        canvas.restoreState();
-
-        canvas.saveState();
-        canvas.setFillColor(BG_DARK);
-        canvas.beginText().setFontAndSize(bold, textSz)
-              .moveText(x + pillPad, pillY + (pillH - textSz) / 2f + 1.5f)
-              .showText(upper).endText();
-        canvas.restoreState();
-
-        return pillY;
+    private void textAtRight(PdfCanvas c, PdfFont font, float size, DeviceRgb color,
+                              float opacity, String text, float x, float y) throws Exception {
+        float tw = font.getWidth(text, size);
+        textAt(c, font, size, color, opacity, text, x - tw, y);
     }
 
     /**
-     * Cellule d'info glassmorphisme pleine largeur (label en accent + valeur en blanc).
-     * @return nouveau Y (bas de la cellule)
+     * Affiche du texte centré horizontalement à la hauteur {@code y}.
      */
-    private float drawInfoCell(PdfCanvas canvas, PdfFont bold, PdfFont regular,
-                                String label, String value,
-                                float x, float y, float w, DeviceRgb accent) throws IOException {
-        float cellH   = 38f;
-        float cellPad = 8f;
-        float cellY   = y - cellH;
-
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setFillOpacity(0.16f));
-        canvas.setFillColor(WHITE);
-        drawRoundedRect(canvas, x, cellY, w, cellH, 6f);
-        canvas.fill();
-        canvas.restoreState();
-
-        canvas.saveState();
-        canvas.setFillColor(accent);
-        canvas.beginText().setFontAndSize(bold, 7f)
-              .moveText(x + cellPad, cellY + cellH - 12f).showText(label).endText();
-        canvas.restoreState();
-
-        canvas.saveState();
-        canvas.setFillColor(WHITE);
-        float valSz = fitFontSize(truncate(value, 55), regular, w - cellPad * 2f, 9f, 7f);
-        canvas.beginText().setFontAndSize(regular, valSz)
-              .moveText(x + cellPad, cellY + cellH - 24f).showText(truncate(value, 55)).endText();
-        canvas.restoreState();
-
-        return cellY;
+    private void centeredText(PdfCanvas c, PdfFont font, float size, DeviceRgb color,
+                               float opacity, String text, float y) throws Exception {
+        float x = CX - font.getWidth(text, size) / 2f;
+        textAt(c, font, size, color, opacity, text, x, y);
     }
 
-    /** Ligne verticale en pointillés. */
-    private void drawDashedLine(PdfCanvas canvas, float x, float yStart, float yEnd,
-                                DeviceRgb color) {
-        canvas.saveState();
-        canvas.setExtGState(new PdfExtGState().setStrokeOpacity(0.25f));
-        canvas.setStrokeColor(color);
-        canvas.setLineWidth(0.5f);
-        float dashLen = 3f;
-        float gapLen  = 3f;
-        float cy = yStart;
-        while (cy < yEnd) {
-            canvas.moveTo(x, cy).lineTo(x, Math.min(cy + dashLen, yEnd));
-            cy += dashLen + gapLen;
-        }
-        canvas.stroke();
-        canvas.restoreState();
-    }
-
-    // =========================================================================
-    // TRAITEMENT IMAGE
-    // =========================================================================
-
-    /** Applique 3 passes de flou gaussien 3×3 (ConvolveOp). */
-    private byte[] applyGaussianBlur(byte[] imageBytes) throws IOException {
-        if (imageBytes == null || imageBytes.length == 0) return imageBytes;
-
-        try (ByteArrayInputStream bais = new ByteArrayInputStream(imageBytes)) {
-            BufferedImage src = ImageIO.read(bais);
-            if (src == null) return imageBytes;
-
-            // Conversion TYPE_INT_RGB pour stabilité ConvolveOp
-            BufferedImage rgb = new BufferedImage(src.getWidth(), src.getHeight(),
-                    BufferedImage.TYPE_INT_RGB);
-            java.awt.Graphics2D g2 = rgb.createGraphics();
-            g2.drawImage(src, 0, 0, null);
-            g2.dispose();
-
-            float[]    kd  = {1/16f, 2/16f, 1/16f, 2/16f, 4/16f, 2/16f, 1/16f, 2/16f, 1/16f};
-            ConvolveOp op  = new ConvolveOp(new Kernel(3, 3, kd), ConvolveOp.EDGE_NO_OP, null);
-            BufferedImage out = rgb;
-            for (int p = 0; p < 3; p++) out = op.filter(out, null);
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(out, "JPEG", baos);
-            return baos.toByteArray();
+    /**
+     * Convertit une couleur hexadécimale (#RRGGBB) en {@link DeviceRgb}.
+     * Retourne bleu par défaut si la chaîne est nulle ou invalide.
+     */
+    private DeviceRgb hexToRgb(String hex) {
+        if (hex == null || hex.length() < 6) return new DeviceRgb(0.33f, 0.51f, 0.78f);
+        String h = hex.replace("#", "");
+        if (h.length() < 6) return new DeviceRgb(0.33f, 0.51f, 0.78f);
+        try {
+            return new DeviceRgb(
+                    Integer.parseInt(h.substring(0, 2), 16) / 255f,
+                    Integer.parseInt(h.substring(2, 4), 16) / 255f,
+                    Integer.parseInt(h.substring(4, 6), 16) / 255f
+            );
+        } catch (NumberFormatException e) {
+            return new DeviceRgb(0.33f, 0.51f, 0.78f);
         }
     }
 
-    /** Supprime le fond blanc du logo (pixels R,G,B > 228 → transparent). */
-    private byte[] removeLogoWhiteBg(byte[] imageBytes) throws IOException {
-        if (imageBytes == null || imageBytes.length == 0) return imageBytes;
-
-        try (ByteArrayInputStream bais = new ByteArrayInputStream(imageBytes)) {
-            BufferedImage src = ImageIO.read(bais);
-            if (src == null) return imageBytes;
-
-            int           w   = src.getWidth();
-            int           h   = src.getHeight();
-            BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-
-            for (int px = 0; px < w; px++) {
-                for (int py = 0; py < h; py++) {
-                    int argb = src.getRGB(px, py);
-                    int r    = (argb >> 16) & 0xFF;
-                    int g    = (argb >>  8) & 0xFF;
-                    int b    =  argb        & 0xFF;
-                    out.setRGB(px, py, (r > 228 && g > 228 && b > 228)
-                            ? 0x00000000 : (argb | 0xFF000000));
-                }
+    /**
+     * Supprime le fond blanc d'une image (seuil R, G, B > 228 → transparent).
+     */
+    private BufferedImage removeWhiteBackground(BufferedImage src) {
+        BufferedImage out = new BufferedImage(
+                src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        for (int x = 0; x < src.getWidth(); x++)
+            for (int y = 0; y < src.getHeight(); y++) {
+                int rgb = src.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF;
+                int g = (rgb >>  8) & 0xFF;
+                int b =  rgb        & 0xFF;
+                out.setRGB(x, y,
+                        (r > 228 && g > 228 && b > 228)
+                                ? 0x00000000
+                                : (0xFF000000 | (rgb & 0x00FFFFFF)));
             }
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(out, "PNG", baos);
-            return baos.toByteArray();
-        }
+        return out;
     }
 
-    // =========================================================================
-    // RÉSOLUTION COULEUR ACCENT ET PRIX
-    // =========================================================================
-
-    private DeviceRgb resolveAccentColor(EventResponse event, String ticketTypeName) {
-        List<EventTicketTypeDTO> types = event.getTicketTypes();
-        if (types == null || ticketTypeName == null) return GOLD;
-        return types.stream()
-                .filter(t -> ticketTypeName.equalsIgnoreCase(t.getName()))
-                .map(EventTicketTypeDTO::getAccentColor)
-                .filter(hex -> hex != null && hex.startsWith("#") && hex.length() >= 7)
-                .map(hex -> rgb(
-                        Integer.parseInt(hex.substring(1, 3), 16),
-                        Integer.parseInt(hex.substring(3, 5), 16),
-                        Integer.parseInt(hex.substring(5, 7), 16)))
-                .findFirst().orElse(GOLD);
-    }
-
-    private Integer resolveTicketPrice(EventResponse event, String ticketTypeName) {
-        List<EventTicketTypeDTO> types = event.getTicketTypes();
-        if (types != null) {
-            String key = normalizeKey(ticketTypeName);
-            return types.stream()
-                    .filter(t -> normalizeKey(t.getName()).equals(key))
-                    .map(EventTicketTypeDTO::getPrice)
-                    .filter(p -> p != null)
-                    .findFirst()
-                    .orElse(defaultPriceFor(ticketTypeName));
-        }
-        return defaultPriceFor(ticketTypeName);
-    }
-
-    private Integer defaultPriceFor(String ticketTypeName) {
-        String key = normalizeKey(ticketTypeName);
-        if ("VVIP".equals(key))                          return 100000;
-        if ("VIP".equals(key))                           return 50000;
-        if ("STANDARD".equals(key) || key.isBlank())     return 25000;
-        return null;
-    }
-
-    // =========================================================================
-    // UTILITAIRES GRAPHIQUES
-    // =========================================================================
-
-    private static DeviceRgb rgb(int r, int g, int b) {
-        return new DeviceRgb(r / 255f, g / 255f, b / 255f);
-    }
-
-    private static DeviceRgb blend(DeviceRgb a, DeviceRgb b, float t) {
-        float[] ca = a.getColorValue();
-        float[] cb = b.getColorValue();
-        return new DeviceRgb(
-                ca[0] + (cb[0] - ca[0]) * t,
-                ca[1] + (cb[1] - ca[1]) * t,
-                ca[2] + (cb[2] - ca[2]) * t);
-    }
-
-    private float fitFontSize(String text, PdfFont font, float maxWidth,
-                              float maxSize, float minSize) throws IOException {
-        for (float s = maxSize; s >= minSize; s -= 0.5f) {
-            if (font.getWidth(text, s) <= maxWidth) return s;
-        }
-        return minSize;
-    }
-
-    private String truncate(String text, int maxLen) {
-        if (text == null) return "";
-        return text.length() <= maxLen ? text : text.substring(0, maxLen - 1) + "\u2026";
-    }
-
-    private String normalizeKey(String s) {
-        return s == null ? "" : s.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private String formatPrice(int price) {
-        String raw = String.valueOf(price);
-        return raw.length() > 3
-                ? raw.substring(0, raw.length() - 3) + " " + raw.substring(raw.length() - 3)
-                : raw;
-    }
-
-    private void drawCenteredText(PdfCanvas canvas, PdfFont font, String text,
-                                   float centerX, float y, float fontSize) {
-        float w = font.getWidth(text, fontSize);
-        canvas.beginText().setFontAndSize(font, fontSize)
-              .moveText(centerX - w / 2f, y).showText(text).endText();
-    }
-
-    private float drawWrappedText(PdfCanvas canvas, PdfFont font, String text,
-                                   float x, float y, float maxWidth,
-                                   float fontSize, float lineHeight) {
-        if (text == null || text.isBlank()) return y;
-        String[]      words     = text.trim().split("\\s+");
-        StringBuilder line      = new StringBuilder();
-        float         currentY  = y;
-
-        for (String word : words) {
-            String candidate = line.length() == 0 ? word : line + " " + word;
-            if (font.getWidth(candidate, fontSize) <= maxWidth) {
-                line.setLength(0);
-                line.append(candidate);
-            } else {
-                if (line.length() > 0) {
-                    canvas.beginText().setFontAndSize(font, fontSize)
-                          .moveText(x, currentY).showText(line.toString()).endText();
-                    currentY -= lineHeight;
-                }
-                line.setLength(0);
-                line.append(word);
-            }
-        }
-        if (line.length() > 0) {
-            canvas.beginText().setFontAndSize(font, fontSize)
-                  .moveText(x, currentY).showText(line.toString()).endText();
-        }
-        return currentY;
-    }
-
-    private void drawRoundedRect(PdfCanvas canvas, float x, float y, float w, float h, float r) {
-        float x1 = x + w;
-        float y1 = y + h;
-        float c  = r * 0.55228475f;
-        canvas.moveTo(x + r, y)
-              .lineTo(x1 - r, y)
-              .curveTo(x1 - r + c, y,  x1, y + r - c,  x1, y + r)
-              .lineTo(x1, y1 - r)
-              .curveTo(x1, y1 - r + c, x1 - r + c, y1, x1 - r, y1)
-              .lineTo(x + r, y1)
-              .curveTo(x + r - c, y1, x,  y1 - r + c,  x,  y1 - r)
-              .lineTo(x, y + r)
-              .curveTo(x, y + r - c,  x + r - c, y,  x + r, y)
-              .closePath();
-    }
-
-    // =========================================================================
-    // CHARGEMENT POLICES (double-checked locking)
-    // =========================================================================
-
-    private PdfFont getFontRegular() throws IOException {
-        PdfFont f = fontRegular;
-        if (f != null) return f;
-        synchronized (this) {
-            if (fontRegular == null)
-                fontRegular = loadFont(FONT_REGULAR_PATH, StandardFonts.HELVETICA);
-            return fontRegular;
-        }
-    }
-
-    private PdfFont getFontBold() throws IOException {
-        PdfFont f = fontBold;
-        if (f != null) return f;
-        synchronized (this) {
-            if (fontBold == null)
-                fontBold = loadFont(FONT_BOLD_PATH, StandardFonts.HELVETICA_BOLD);
-            return fontBold;
-        }
-    }
-
-    private PdfFont getFontItalic() throws IOException {
-        PdfFont f = fontItalic;
-        if (f != null) return f;
-        synchronized (this) {
-            if (fontItalic == null)
-                fontItalic = loadFont(FONT_ITALIC_PATH, StandardFonts.HELVETICA_OBLIQUE);
-            return fontItalic;
-        }
-    }
-
-    private PdfFont loadFont(String classpathPath, String fallback) throws IOException {
-        try (InputStream is = getClass().getClassLoader().getResourceAsStream(classpathPath)) {
-            if (is == null) return PdfFontFactory.createFont(fallback);
-            byte[] bytes = is.readAllBytes();
-            return PdfFontFactory.createFont(bytes, PdfEncodings.IDENTITY_H,
-                    PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED);
-        }
+    /**
+     * Encode un {@link BufferedImage} en bytes PNG.
+     */
+    private byte[] toImgBytes(BufferedImage img) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(img, "PNG", baos);
+        return baos.toByteArray();
     }
 }

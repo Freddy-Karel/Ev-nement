@@ -1,8 +1,7 @@
 package com.invitation.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.zxing.WriterException;
-import com.invitation.dto.response.EventResponse;
+import com.invitation.dto.request.InvitationRequest;
 import com.invitation.service.InvitationPdfService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,23 +14,25 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /**
- * Contrôleur REST pour la génération de PDF d'invitations.
+ * Contrôleur REST pour la génération de PDF d'invitations — Design Concept A.
  *
- * <p>Deux endpoints :</p>
+ * <p>Endpoints :</p>
  * <ul>
- *   <li>{@code POST /api/invitations/generate} — un PDF pour un type de billet</li>
- *   <li>{@code POST /api/invitations/generate-all} — un ZIP avec un PDF par type</li>
+ *   <li>{@code POST /api/invitations/generate}     — un PDF pour un invité/type</li>
+ *   <li>{@code POST /api/invitations/generate-all} — ZIP avec PDF VVIP, VIP et STANDARD</li>
  * </ul>
  *
- * <p>Tous les endpoints sont protégés par JWT ({@code isAuthenticated()}).
- * Les fichiers (logo, bannière) sont transmis en {@code multipart/form-data}.</p>
+ * <p>Format de requête : {@code multipart/form-data}</p>
+ * <ul>
+ *   <li>{@code data} (part JSON) — {@link InvitationRequest} sérialisé en JSON</li>
+ *   <li>{@code logo} (part fichier, optionnel) — image PNG/JPEG du logo</li>
+ * </ul>
  */
 @RestController
 @RequestMapping("/api/invitations")
@@ -44,125 +45,85 @@ public class InvitationController {
     private final ObjectMapper         objectMapper;
 
     // =========================================================================
-    // ENDPOINT 1 — PDF unique pour un type de billet
+    // ENDPOINT 1 — PDF unique (un invité, un type de billet)
     // =========================================================================
 
     /**
-     * Génère un PDF d'invitation pour un type de billet et un invité donnés.
+     * Génère un PDF d'invitation au format Concept A.
      *
-     * <p>Le corps de la requête doit être {@code multipart/form-data} avec :</p>
-     * <ul>
-     *   <li>{@code event} (part JSON) — {@link EventResponse} sérialisé en JSON</li>
-     *   <li>{@code logo} (part fichier, optionnel) — image PNG/JPEG du logo</li>
-     *   <li>{@code banner} (part fichier, optionnel) — image PNG/JPEG de bannière</li>
-     *   <li>{@code ticketType} (param) — nom du type (ex : "VIP")</li>
-     *   <li>{@code participantName} (param) — prénom affiché sur la carte</li>
-     *   <li>{@code qrData} (param) — URL encodée dans le QR code</li>
-     * </ul>
-     *
-     * @return {@code 200 OK} avec le PDF en bytes ({@code application/pdf})
-     *         ou {@code 400 Bad Request} si le type de billet est invalide
+     * @param dataJson JSON de {@link InvitationRequest}
+     * @param logo     fichier logo (optionnel)
+     * @return {@code 200 OK} avec bytes PDF ({@code application/pdf})
      */
     @PostMapping(value = "/generate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<byte[]> generateInvitation(
-            @RequestPart("event")                              String         eventJson,
-            @RequestPart(value = "logo",   required = false)  MultipartFile  logo,
-            @RequestPart(value = "banner", required = false)  MultipartFile  banner,
-            @RequestParam("ticketType")                        String         ticketTypeName,
-            @RequestParam("participantName")                   String         participantName,
-            @RequestParam("qrData")                            String         qrData
-    ) throws IOException, WriterException {
+            @RequestPart("data")                               String        dataJson,
+            @RequestPart(value = "logo", required = false)     MultipartFile logo
+    ) throws Exception {
 
-        log.info("POST /api/invitations/generate — type={}, invité={}", ticketTypeName, participantName);
+        InvitationRequest req = objectMapper.readValue(dataJson, InvitationRequest.class);
+        log.info("POST /generate — type={}, invité={}", req.getTicketType(), req.getGuestName());
 
-        EventResponse event = objectMapper.readValue(eventJson, EventResponse.class);
-        validateTicketType(event, ticketTypeName);
+        byte[] pdf = invitationPdfService.generate(req, logo);
+        log.info("PDF généré : {} bytes", pdf.length);
 
-        byte[] pdf = invitationPdfService.generate(
-                event,
-                toBytes(logo),
-                toBytes(banner),
-                ticketTypeName,
-                participantName,
-                qrData
-        );
-
-        log.info("PDF généré : {} bytes — type={}", pdf.length, ticketTypeName);
-        return pdfResponse(pdf, buildPdfFilename(ticketTypeName, participantName));
+        return pdfResponse(pdf, buildFilename(req.getTicketType(), req.getGuestName()));
     }
 
     // =========================================================================
-    // ENDPOINT 2 — ZIP avec un PDF par type de billet
+    // ENDPOINT 2 — ZIP avec les 3 types VVIP / VIP / STANDARD
     // =========================================================================
 
     /**
-     * Génère un ZIP contenant un PDF par type de billet configuré pour l'événement.
+     * Génère un ZIP contenant un PDF par type de billet (VVIP, VIP, STANDARD)
+     * pour le même invité. Utile pour tester les 3 variantes de design.
      *
-     * <p>Utile pour l'admin qui veut prévisualiser ou distribuer tous les designs
-     * d'un coup. Si l'événement n'a pas de {@code ticketTypes} configurés, le fallback
-     * rétrocompatible STANDARD / VIP / VVIP est utilisé.</p>
-     *
-     * <p>Le corps de la requête doit être {@code multipart/form-data} avec :</p>
-     * <ul>
-     *   <li>{@code event} (part JSON) — {@link EventResponse} sérialisé en JSON</li>
-     *   <li>{@code logo} (part fichier, optionnel) — logo commun à tous les PDFs</li>
-     *   <li>{@code banner} (part fichier, optionnel) — bannière commune</li>
-     *   <li>{@code participantName} (param) — prénom affiché sur toutes les cartes</li>
-     *   <li>{@code qrData} (param) — URL QR commune</li>
-     * </ul>
-     *
-     * @return {@code 200 OK} avec le ZIP en bytes ({@code application/zip})
-     *         ou {@code 400 Bad Request} si aucun type n'est disponible
+     * @param dataJson JSON de {@link InvitationRequest} (ticketType/accentColorHex ignorés)
+     * @param logo     fichier logo commun (optionnel)
+     * @return {@code 200 OK} avec bytes ZIP ({@code application/zip})
      */
     @PostMapping(value = "/generate-all", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<byte[]> generateAllInvitations(
-            @RequestPart("event")                              String        eventJson,
-            @RequestPart(value = "logo",   required = false)  MultipartFile logo,
-            @RequestPart(value = "banner", required = false)  MultipartFile banner,
-            @RequestParam("participantName")                   String        participantName,
-            @RequestParam("qrData")                            String        qrData
-    ) throws IOException, WriterException {
+    public ResponseEntity<byte[]> generateAll(
+            @RequestPart("data")                               String        dataJson,
+            @RequestPart(value = "logo", required = false)     MultipartFile logo
+    ) throws Exception {
 
-        log.info("POST /api/invitations/generate-all — invité={}", participantName);
+        InvitationRequest base = objectMapper.readValue(dataJson, InvitationRequest.class);
+        log.info("POST /generate-all — invité={}", base.getGuestName());
 
-        EventResponse event       = objectMapper.readValue(eventJson, EventResponse.class);
-        byte[]        logoBytes   = toBytes(logo);
-        byte[]        bannerBytes = toBytes(banner);
+        // Variantes des 3 types
+        Map<String, String[]> variants = Map.of(
+                "VVIP",     new String[]{"100 000", "#D4A017"},
+                "VIP",      new String[]{"50 000",  "#AFAFAF"},
+                "STANDARD", new String[]{"25 000",  "#5582C8"}
+        );
+        String[] typeOrder = {"VVIP", "VIP", "STANDARD"};
 
-        List<String> typeNames = resolveTicketTypeNames(event);
-        if (typeNames.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Aucun type de billet disponible pour cet événement. "
-                    + "Configurez des types via le formulaire événement.");
-        }
-
-        // Construction du ZIP en mémoire
         ByteArrayOutputStream zipBaos = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(zipBaos)) {
-            for (String typeName : typeNames) {
-                byte[] pdf     = invitationPdfService.generate(
-                        event, logoBytes, bannerBytes,
-                        typeName, participantName, qrData
-                );
-                String entry = sanitize(typeName) + "_" + sanitize(participantName) + ".pdf";
+            for (String type : typeOrder) {
+                String[] conf = variants.get(type);
+                InvitationRequest req = cloneWith(base, type, conf[0], conf[1]);
+                byte[] pdf = invitationPdfService.generate(req, logo);
+                String entry = sanitize(type) + "_" + sanitize(req.getGuestName()) + ".pdf";
                 zip.putNextEntry(new ZipEntry(entry));
                 zip.write(pdf);
                 zip.closeEntry();
-                log.debug("  └─ entrée ZIP : {} ({} bytes)", entry, pdf.length);
+                log.debug("  └─ {} : {} bytes", entry, pdf.length);
             }
         }
 
-        byte[] zipBytes   = zipBaos.toByteArray();
-        String zipFilename = "invitations_"
-                + sanitize(event.getTitle() != null ? event.getTitle() : "event")
-                + ".zip";
-
+        byte[] zipBytes = zipBaos.toByteArray();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("application/zip"));
-        headers.setContentDisposition(ContentDisposition.attachment().filename(zipFilename).build());
+        headers.setContentDisposition(
+                ContentDisposition.attachment()
+                        .filename("invitations_concept_a_" + sanitize(base.getGuestName()) + ".zip")
+                        .build()
+        );
         headers.setContentLength(zipBytes.length);
 
-        log.info("ZIP généré : {} PDFs, {} bytes total", typeNames.size(), zipBytes.length);
+        log.info("ZIP généré : {} bytes", zipBytes.length);
         return ResponseEntity.ok().headers(headers).body(zipBytes);
     }
 
@@ -170,61 +131,35 @@ public class InvitationController {
     // MÉTHODES PRIVÉES
     // =========================================================================
 
-    /**
-     * Convertit un {@link MultipartFile} en {@code byte[]}.
-     * Retourne {@code null} si le fichier est absent ou vide.
-     */
-    private byte[] toBytes(MultipartFile file) throws IOException {
-        if (file == null || file.isEmpty()) return null;
-        return file.getBytes();
+    /** Clone un InvitationRequest en surchargeant type, prix et couleur. */
+    private InvitationRequest cloneWith(InvitationRequest base,
+                                         String type, String price, String color) {
+        InvitationRequest r = new InvitationRequest();
+        r.setEventTitleLine1(base.getEventTitleLine1());
+        r.setEventTitleLine2(base.getEventTitleLine2());
+        r.setEdition(base.getEdition());
+        r.setTheme(base.getTheme());
+        r.setDate(base.getDate());
+        r.setTimeStart(base.getTimeStart());
+        r.setTimeEnd(base.getTimeEnd());
+        r.setVenueName(base.getVenueName());
+        r.setVenueCity(base.getVenueCity());
+        r.setPhone1(base.getPhone1());
+        r.setPhone2(base.getPhone2());
+        r.setDressCode(base.getDressCode());
+        r.setOrganizer(base.getOrganizer());
+        r.setQrUrl(base.getQrUrl());
+        r.setGuestName(base.getGuestName());
+        r.setTicketType(type);
+        r.setTicketPrice(price);
+        r.setAccentColorHex(color);
+        return r;
     }
 
-    /**
-     * Valide que {@code ticketTypeName} existe dans {@code event.ticketTypes}.
-     * Sans validation si la config est absente (rétrocompatibilité événements anciens).
-     *
-     * @throws IllegalArgumentException si le type n'est pas dans la config
-     */
-    private void validateTicketType(EventResponse event, String ticketTypeName) {
-        if (event.getTicketTypes() == null || event.getTicketTypes().isEmpty()) return;
-
-        boolean exists = event.getTicketTypes().stream()
-                .anyMatch(t -> ticketTypeName.equalsIgnoreCase(t.getName()));
-
-        if (!exists) {
-            throw new IllegalArgumentException(
-                    "Type de billet '" + ticketTypeName
-                    + "' introuvable dans la configuration de cet événement."
-            );
-        }
+    private String buildFilename(String ticketType, String guestName) {
+        return "invitation_" + sanitize(ticketType) + "_" + sanitize(guestName) + ".pdf";
     }
 
-    /**
-     * Retourne la liste des noms de types depuis {@code event.ticketTypes}.
-     * Fallback vers {@code ["STANDARD", "VIP", "VVIP"]} si la config est absente.
-     */
-    private List<String> resolveTicketTypeNames(EventResponse event) {
-        if (event.getTicketTypes() != null && !event.getTicketTypes().isEmpty()) {
-            return event.getTicketTypes().stream()
-                    .map(t -> t.getName() != null ? t.getName() : "STANDARD")
-                    .toList();
-        }
-        return List.of("STANDARD", "VIP", "VVIP");
-    }
-
-    /**
-     * Construit le nom du fichier PDF retourné en téléchargement.
-     * Exemple : {@code invitation_vip_jean_dupont.pdf}
-     */
-    private String buildPdfFilename(String ticketTypeName, String participantName) {
-        return "invitation_" + sanitize(ticketTypeName) + "_" + sanitize(participantName) + ".pdf";
-    }
-
-    /**
-     * Nettoie une chaîne pour qu'elle soit utilisable comme nom de fichier.
-     * Remplace tout caractère non alphanumérique par {@code _},
-     * supprime les underscores consécutifs et en début/fin.
-     */
     private String sanitize(String input) {
         if (input == null || input.isBlank()) return "fichier";
         return input.trim()
@@ -234,9 +169,6 @@ public class InvitationController {
                 .replaceAll("^_|_$", "");
     }
 
-    /**
-     * Construit la {@link ResponseEntity} pour un retour PDF avec les headers appropriés.
-     */
     private ResponseEntity<byte[]> pdfResponse(byte[] pdf, String filename) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);

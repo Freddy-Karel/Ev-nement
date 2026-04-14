@@ -38,22 +38,10 @@ export default function InvitationPreview({ open, onClose, onInviteAnother, invi
       // 1 - Logo (asset local -> File)
       const logoFile = await urlToFile(logo, 'logo.jpeg')
 
-      // 2 - Banniere : priorite au bannerUrl specifique au type, sinon banniere de l'evenement
-      const bannerUrl = (() => {
-        const event = invitation.event
-        if (!event) return null
-        const ticketConfig = event.ticketTypes?.find(
-          (t) => t.name === (invitation.ticketType || 'STANDARD')
-        )
-        return ticketConfig?.bannerUrl || event.bannerUrl || null
-      })()
-      const bannerFile = await urlToFile(bannerUrl, 'banner.jpg')
-
-      // 3 - Appel au service de generation PDF (backend iText7)
+      // 2 - Appel au service de generation PDF (backend iText7 — Design Concept A)
       const pdfBlob = await generateInvitation({
         event          : invitation.event,
         logoFile,
-        bannerFile,
         ticketTypeName : invitation.ticketType
                      || invitation.event?.ticketTypes?.[0]?.name
                      || 'STANDARD',
@@ -107,8 +95,8 @@ export default function InvitationPreview({ open, onClose, onInviteAnother, invi
             width       : '100%',
           }}>
             <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-              Format <strong style={{ color: 'var(--color-text-primary)' }}>A6</strong>
-              {' '}· carte {isDay ? 'blanc/violet ICC' : 'noir/or'}
+              Format <strong style={{ color: 'var(--color-text-primary)' }}>A4</strong>
+              {' '}· Design Concept A — fond violet immersif
             </p>
             <p style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>
               Invitation pour{' '}
