@@ -76,8 +76,30 @@ export default function PublicEventList() {
             </div>
           </div>
 
-          {/* Menu et Boutons enlevés (uniquement Logo et ThemeSwitcher gardés) */}
-          <div style={{ display: 'flex', alignItems: 'center' }}>
+          {/* Navigation */}
+          <div className="desktop-nav" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <Link
+              to="/ambassador/login"
+              style={{
+                background    : 'linear-gradient(135deg, #7B2D8B 0%, #D4AF37 100%)',
+                color         : '#FFFFFF',
+                padding       : '0.45rem 1.1rem',
+                borderRadius  : '50px',
+                fontWeight    : 600,
+                fontSize      : '0.8125rem',
+                textDecoration: 'none',
+                display       : 'inline-flex',
+                alignItems    : 'center',
+                gap           : '0.35rem',
+                boxShadow     : '0 2px 10px rgba(123,45,139,0.35)',
+                fontFamily    : 'Inter, sans-serif',
+                transition    : 'opacity 0.2s, transform 0.2s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.88'; e.currentTarget.style.transform = 'scale(1.04)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1';    e.currentTarget.style.transform = 'scale(1)' }}
+            >
+              👑 Espace Ambassadeur
+            </Link>
             <ThemeSwitcher />
           </div>
         </div>

@@ -22,6 +22,21 @@ const authApi = {
    */
   changePassword: (oldPassword, newPassword) =>
     api.post('/auth/change-password', { oldPassword, newPassword }).then((r) => r.data),
+
+  /**
+   * Envoie un email de réinitialisation de mot de passe.
+   * @param {string} email
+   */
+  forgotPassword: (email) =>
+    api.post('/auth/forgot-password', { email }).then((r) => r.data),
+
+  /**
+   * Réinitialise le mot de passe via un token reçu par email.
+   * @param {string} token
+   * @param {string} newPassword
+   */
+  resetPassword: (token, newPassword) =>
+    api.post('/auth/reset-password', { token, newPassword }).then((r) => r.data),
 }
 
 export default authApi

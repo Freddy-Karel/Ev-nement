@@ -64,4 +64,14 @@ public interface EmailService {
      * @param temporaryPassword mot de passe temporaire en clair
      */
     void sendAmbassadorWelcome(String to, String firstName, String temporaryPassword);
+
+    /**
+     * Envoie l'email de réinitialisation de mot de passe avec un lien sécurisé.
+     * Le lien expire après 1 heure.
+     *
+     * @param to        adresse email du destinataire
+     * @param firstName prénom de l'ambassadeur
+     * @param resetUrl  URL complète de réinitialisation (avec token en query param)
+     */
+    void sendPasswordReset(String to, String firstName, String resetUrl);
 }

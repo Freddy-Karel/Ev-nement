@@ -23,7 +23,13 @@ const PublicRegister    = lazy(() => import('./pages/Public/PublicRegister'))
 const ConfirmInvitation = lazy(() => import('./pages/Public/ConfirmInvitation'))
 const AmbassadorSignup  = lazy(() => import('./pages/Public/AmbassadorSignup'))
 
-// ── Pages Ambassadeur ────────────────────────────────────────────────────────
+// ── Pages Ambassadeur (auth) ─────────────────────────────────────────────────
+const AmbassadorLogin    = lazy(() => import('./pages/Ambassador/AmbassadorLogin'))
+const ForgotPassword     = lazy(() => import('./pages/Ambassador/ForgotPassword'))
+const ResetPassword      = lazy(() => import('./pages/Ambassador/ResetPassword'))
+const AmbassadorRegister = lazy(() => import('./pages/Ambassador/AmbassadorRegister'))
+
+// ── Pages Ambassadeur (espace privé) ─────────────────────────────────────────
 const AmbassadorOnboarding  = lazy(() => import('./pages/Ambassador/AmbassadorOnboarding'))
 const AmbassadorHome        = lazy(() => import('./pages/Ambassador/AmbassadorHome'))
 const AmbassadorInvite      = lazy(() => import('./pages/Ambassador/AmbassadorInvite'))
@@ -34,11 +40,11 @@ const AmbassadorProfile     = lazy(() => import('./pages/Ambassador/AmbassadorPr
 function PageLoader() {
   return (
     <div style={{
-      minHeight      : '100vh',
-      background     : 'var(--color-surface)',
-      display        : 'flex',
-      alignItems     : 'center',
-      justifyContent : 'center',
+      minHeight     : '100vh',
+      background    : 'var(--color-surface)',
+      display       : 'flex',
+      alignItems    : 'center',
+      justifyContent: 'center',
     }}>
       <Loader size="lg" />
     </div>
@@ -71,9 +77,8 @@ function ThemedToaster() {
 }
 
 /**
- * Route protégée selon le rôle.
- * - ADMIN      → garde l'accès aux routes admin
- * - AMBASSADOR → redirige vers son espace
+ * Route protégée pour les admins.
+ * ADMIN → accès. AMBASSADOR → redirige vers /ambassador. Non connecté → /login.
  */
 function AdminRoute({ children }) {
   const { isAuthenticated, isAdmin, loading } = useAuth()
@@ -85,12 +90,13 @@ function AdminRoute({ children }) {
 
 /**
  * Route protégée pour les ambassadeurs.
- * Redirige vers /ambassador/onboarding si l'onboarding n'est pas complété.
+ * Non connecté → /ambassador/login. Admin → /dashboard.
+ * Onboarding non complété → /ambassador/onboarding.
  */
 function AmbassadorRoute({ children, requireOnboarding = true }) {
   const { isAuthenticated, isAmbassador, user, loading } = useAuth()
   if (loading) return <PageLoader />
-  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (!isAuthenticated) return <Navigate to="/ambassador/login" replace />
   if (!isAmbassador) return <Navigate to="/dashboard" replace />
   if (requireOnboarding && !user?.onboardingCompleted) {
     return <Navigate to="/ambassador/onboarding" replace />
@@ -108,10 +114,16 @@ export default function App() {
             <Suspense fallback={<PageLoader />}>
               <Routes>
 
-                {/* ── Authentification ──────────────────────────────── */}
+                {/* ── Authentification Admin ────────────────────────── */}
                 <Route path="/login" element={<Login />} />
 
-                {/* ── Inscription Ambassadeur (avec ?ref=CODE) ────────── */}
+                {/* ── Espace Ambassadeur – pages publiques ─────────── */}
+                <Route path="/ambassador/login"           element={<AmbassadorLogin />} />
+                <Route path="/ambassador/forgot-password" element={<ForgotPassword />} />
+                <Route path="/ambassador/reset-password"  element={<ResetPassword />} />
+                <Route path="/ambassador/register"        element={<AmbassadorRegister />} />
+
+                {/* ── Inscription Ambassadeur legacy (/register?ref=) ── */}
                 <Route path="/register" element={<AmbassadorSignup />} />
 
                 {/* ── Pages publiques événements ───────────────────── */}
@@ -120,7 +132,7 @@ export default function App() {
                 <Route path="/register/:eventId" element={<PublicRegister />} />
                 <Route path="/confirm/:token"    element={<ConfirmInvitation />} />
 
-                {/* ── Espace Ambassadeur ───────────────────────────── */}
+                {/* ── Espace Ambassadeur – pages protégées ─────────── */}
                 <Route path="/ambassador/onboarding" element={
                   <AmbassadorRoute requireOnboarding={false}>
                     <AmbassadorOnboarding />
@@ -160,8 +172,8 @@ export default function App() {
                 } />
 
                 {/* ── Redirections par défaut ──────────────────────── */}
-                <Route path="/"  element={<Navigate to="/login" replace />} />
-                <Route path="*"  element={<Navigate to="/login" replace />} />
+                <Route path="/"  element={<Navigate to="/ambassador/login" replace />} />
+                <Route path="*"  element={<Navigate to="/ambassador/login" replace />} />
 
               </Routes>
             </Suspense>

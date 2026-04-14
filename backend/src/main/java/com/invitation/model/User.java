@@ -116,6 +116,17 @@ public class User {
     private boolean onboardingCompleted = false;
 
     // =========================================================================
+    // RÉINITIALISATION DE MOT DE PASSE
+    // =========================================================================
+
+    /** Token sécurisé envoyé par email pour réinitialiser le mot de passe. */
+    @Column(length = 128)
+    private String passwordResetToken;
+
+    /** Date d'expiration du token de réinitialisation (1 heure après génération). */
+    private LocalDateTime passwordResetTokenExpiry;
+
+    // =========================================================================
     // AUDIT
     // =========================================================================
 

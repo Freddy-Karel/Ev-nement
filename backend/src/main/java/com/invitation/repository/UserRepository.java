@@ -35,4 +35,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** Compte total des utilisateurs parrainés (statut AMBASSADOR). */
     long countByRole(Role role);
+
+    /** Recherche un utilisateur par son token de réinitialisation de mot de passe. */
+    Optional<User> findByPasswordResetToken(String passwordResetToken);
 }

@@ -329,6 +329,55 @@ public class EmailServiceImpl implements EmailService {
     }
 
     // =========================================================================
+    // RÉINITIALISATION DE MOT DE PASSE
+    // =========================================================================
+
+    @Override
+    public void sendPasswordReset(String to, String firstName, String resetUrl) {
+        String subject = "🔑 Réinitialisation de votre mot de passe FEMMES ROYALES";
+        String html = """
+            <!DOCTYPE html>
+            <html lang="fr">
+            <head><meta charset="UTF-8"></head>
+            <body style="margin:0;padding:0;background:#f4f4f8;font-family:Arial,sans-serif;">
+              <div style="max-width:600px;margin:0 auto;padding:20px;">
+                %s
+                <div style="background:#fff;border-radius:16px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                  <h2 style="color:#1f2937;margin:0 0 12px;">Bonjour %s, 👋</h2>
+                  <p style="color:#4b5563;line-height:1.6;margin:0 0 20px;">
+                    Nous avons reçu une demande de réinitialisation de mot de passe pour votre compte Ambassadeur.
+                  </p>
+                  <div style="text-align:center;margin:28px 0;">
+                    <a href="%s" style="display:inline-block;background:%s;color:#fff;padding:14px 36px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;">
+                      🔒 Réinitialiser mon mot de passe
+                    </a>
+                  </div>
+                  <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:14px;border-radius:8px;margin:0 0 20px;">
+                    <p style="margin:0;font-size:13px;color:#92400e;">
+                      ⏰ <strong>Ce lien expire dans 1 heure.</strong>
+                      Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.
+                    </p>
+                  </div>
+                  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;word-break:break-all;">
+                    Ou copiez ce lien : %s
+                  </p>
+                </div>
+                %s
+              </div>
+            </body>
+            </html>
+            """.formatted(
+                buildHeader(),
+                escape(firstName),
+                resetUrl, BRAND_COLOR,
+                resetUrl,
+                buildFooter()
+        );
+        sendHtmlEmail(to, subject, html);
+        log.info("✉️  Email de réinitialisation de mot de passe envoyé à {}", to);
+    }
+
+    // =========================================================================
     // MÉTHODE CENTRALE D'ENVOI
     // =========================================================================
 
